@@ -108,6 +108,14 @@ function TomiStyles() {
       .tomi-globe-land { animation: tomiGlobeSpin 22s linear infinite; }
       @media (prefers-reduced-motion: reduce) { .tomi-globe-land { animation: none; } }
 
+      @keyframes tomiScan { 0% { top: 6%; } 50% { top: 90%; } 100% { top: 6%; } }
+      .tomi-scanline {
+        position: absolute; left: 8px; right: 8px; height: 4px; border-radius: 4px;
+        background: linear-gradient(90deg, rgba(242,169,59,0), #F2A93B, rgba(242,169,59,0));
+        box-shadow: 0 0 18px 4px rgba(242,169,59,0.7);
+        animation: tomiScan 1.6s ease-in-out infinite;
+      }
+
       @keyframes tomiBlink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.12); } }
       .tomi-blink { animation: tomiBlink 4.2s infinite; transform-origin: center; }
 
@@ -3719,6 +3727,13 @@ const RATING_EMOJI = { love: "😍", good: "🙂", ok: "😐", meh: "😕" };
 
 /* Cada logro se deriva del estado real de la app — nunca se guarda un
    número de puntos aparte. "check" decide si ya está desbloqueado. */
+/* Recetas cocinadas (del historial) con sus datos completos. */
+function cookedRecipes(cookHistory) {
+  return cookHistory.map((h) => findRecipeById(h.recipeId)).filter(Boolean);
+}
+
+/* Logros. Los "premium: true" dependen del escáner de despensa y solo se
+   muestran como logros especiales de Tomi Premium. */
 const ACHIEVEMENTS = [
   {
     id: "primera_receta",
@@ -3728,18 +3743,28 @@ const ACHIEVEMENTS = [
     check: ({ cookHistory }) => cookHistory.length >= 1,
   },
   {
-    id: "despensa_en_accion",
-    icon: "🥫",
-    title: "Despensa en acción",
-    text: "Preparaste una receta usando ingredientes que ya tenías.",
-    check: ({ cookHistory }) => cookHistory.some((h) => h.extraCost === 0),
+    id: "explorador_latino",
+    icon: "🌎",
+    title: "Explorador latino",
+    text: "Cocinaste un plato de México, Colombia y Venezuela.",
+    check: ({ cookHistory }) => {
+      const countries = new Set(cookedRecipes(cookHistory).map((r) => r.country).filter(Boolean));
+      return ["mexico", "colombia", "venezuela"].every((c) => countries.has(c));
+    },
   },
   {
-    id: "ahorrador",
-    icon: "💰",
-    title: "Ahorrador",
-    text: "Preparaste 3 comidas sin compras adicionales.",
-    check: ({ cookHistory }) => cookHistory.filter((h) => h.extraCost === 0).length >= 3,
+    id: "buenos_dias",
+    icon: "🌅",
+    title: "Buenos días",
+    text: "Preparaste 3 desayunos.",
+    check: ({ cookHistory }) => cookedRecipes(cookHistory).filter((r) => r.group === "desayuno").length >= 3,
+  },
+  {
+    id: "batido_power",
+    icon: "🥤",
+    title: "Batido power",
+    text: "Hiciste 3 batidos.",
+    check: ({ cookHistory }) => cookedRecipes(cookHistory).filter((r) => r.group === "batido").length >= 3,
   },
   {
     id: "favorito_de_tomi",
@@ -3749,20 +3774,38 @@ const ACHIEVEMENTS = [
     check: ({ userMemory }) => userMemory.preferences.favoriteRecipes.length >= 2,
   },
   {
-    id: "aprovechador",
-    icon: "♻️",
-    title: "Aprovechador",
-    text: "Usaste varios ingredientes que ya estaban en tu despensa.",
-    check: ({ cookHistory }) => cookHistory.some((h) => h.ingredientsUsed && h.ingredientsUsed.length >= 3),
-  },
-  {
     id: "cocinero_constante",
     icon: "🔥",
     title: "Cocinero constante",
     text: "Cocinaste varios días con Tomi.",
     check: ({ cookHistory }) => new Set(cookHistory.map((h) => h.date.slice(0, 10))).size >= 3,
   },
+  {
+    id: "despensa_en_accion",
+    icon: "🥫",
+    title: "Despensa en acción",
+    text: "Preparaste una receta usando ingredientes que ya tenías.",
+    premium: true,
+    check: ({ cookHistory }) => cookHistory.some((h) => h.extraCost === 0),
+  },
+  {
+    id: "ahorrador",
+    icon: "💰",
+    title: "Ahorrador",
+    text: "Preparaste 3 comidas sin compras adicionales.",
+    premium: true,
+    check: ({ cookHistory }) => cookHistory.filter((h) => h.extraCost === 0).length >= 3,
+  },
+  {
+    id: "aprovechador",
+    icon: "♻️",
+    title: "Aprovechador",
+    text: "Usaste varios ingredientes que ya estaban en tu despensa.",
+    premium: true,
+    check: ({ cookHistory }) => cookHistory.some((h) => h.ingredientsUsed && h.ingredientsUsed.length >= 3),
+  },
 ];
+const FREE_ACHIEVEMENTS = ACHIEVEMENTS.filter((a) => !a.premium);
 
 function getUnlockedAchievements(state) {
   return ACHIEVEMENTS.filter((a) => a.check(state));
@@ -4336,6 +4379,148 @@ function RecipeThumb({ recipe, height = 100 }) {
   );
 }
 
+/* Aviso "Tomi Premium llega muy pronto" (luego llevará a la página de venta). */
+function PremiumSoonModal({ feature, onClose }) {
+  return (
+    <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(61,43,34,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 30 }}>
+      <div onClick={(e) => e.stopPropagation()} className="tomi-bg-cream rounded-3xl tomi-pop-in" style={{ padding: 22, width: "100%", textAlign: "center" }}>
+        <TomiHead size={64} pose="excited" />
+        <p className="tomi-display tomi-text-ink" style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>
+          {feature ? `${feature.icon} ${feature.title}` : "Tomi Premium ✨"}
+        </p>
+        <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 6, lineHeight: 1.45 }}>
+          {feature ? `${feature.text} ` : ""}Esta función es parte de Tomi Premium, que llega muy pronto ✨
+        </p>
+        <button onClick={onClose} className="tomi-tap tomi-bg-tomato rounded-2xl w-full" style={{ padding: "12px 0", marginTop: 16 }}>
+          <span className="tomi-display" style={{ color: "#FFF8F2", fontWeight: 700, fontSize: 14 }}>¡Genial!</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* Demostración gratis del escáner: todo está preparado de antemano,
+   no llama a ninguna IA, así que no cuesta nada aunque la vean miles de personas. */
+const DEMO_PANTRY = ["huevo", "tomate", "cebolla", "arroz", "frijoles", "aguacate", "queso", "pollo", "limon"];
+const DEMO_RESULT_IDS = ["des_huevos_revueltos_a_la_mexicana", "ve_pabellon_criollo", "ve_arepa_reina_pepiada"];
+
+function PremiumDemo({ onClose, onWantPremium }) {
+  const [step, setStep] = useState(0); // 0 foto · 1 analizando · 2 ingredientes · 3 recetas
+  const [shown, setShown] = useState(0);
+
+  useEffect(() => {
+    const timers = [setTimeout(() => setStep(1), 1300), setTimeout(() => setStep(2), 3200)];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  useEffect(() => {
+    if (step !== 2) return;
+    if (shown < DEMO_PANTRY.length) {
+      const t = setTimeout(() => setShown((n) => n + 1), 260);
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => setStep(3), 900);
+    return () => clearTimeout(t);
+  }, [step, shown]);
+
+  const results = DEMO_RESULT_IDS.map(findRecipeById).filter(Boolean);
+  const tomiText = [
+    "Mira, esta es la foto de una despensa de ejemplo 📸",
+    "Déjame ver qué hay por aquí… 🔍",
+    "¡Encontré varios ingredientes! 🥳",
+    "Con esto puedes preparar estas recetas 🍳",
+  ][step];
+
+  return (
+    <div style={{ position: "absolute", inset: 0, zIndex: 30, background: "#FFF6EA", display: "flex", flexDirection: "column" }}>
+      <div className="flex items-center justify-between px-5 pt-5">
+        <span className="tomi-display" style={{ fontSize: 12, fontWeight: 800, color: "#B9791C", background: "#FCEACA", borderRadius: 999, padding: "4px 10px" }}>
+          ▶️ DEMOSTRACIÓN
+        </span>
+        <button onClick={onClose} className="tomi-tap tomi-bg-white rounded-full" style={{ width: 34, height: 34, fontSize: 15, boxShadow: "0 4px 10px -4px rgba(0,0,0,0.2)" }} aria-label="Cerrar">
+          ✕
+        </button>
+      </div>
+
+      <div className="flex-1 tomi-scroll" style={{ overflowY: "auto", padding: "14px 20px 20px" }}>
+        <div className="flex items-center gap-3">
+          <TomiHead size={48} pose={step === 1 ? "thinking" : step >= 2 ? "excited" : "happy"} />
+          <p key={step} className="tomi-display tomi-text-ink tomi-fade-up" style={{ fontSize: 15, fontWeight: 700, margin: 0, lineHeight: 1.3 }}>{tomiText}</p>
+        </div>
+
+        {step < 3 && (
+          <div style={{ position: "relative", marginTop: 16, borderRadius: 22, overflow: "hidden", background: "#3D2B22", padding: 14 }}>
+            <div className="grid grid-cols-3 gap-2">
+              {DEMO_PANTRY.map((id) => (
+                <img key={id} src={ingredientPhoto(id)} alt="" style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", borderRadius: 12, display: "block" }} />
+              ))}
+            </div>
+            <CornerBrackets />
+            {step === 1 && <div className="tomi-scanline" />}
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="flex flex-wrap gap-2" style={{ marginTop: 14 }}>
+            {DEMO_PANTRY.slice(0, shown).map((id) => {
+              const m = ingredientMeta(id);
+              return (
+                <span key={id} className="tomi-pop-in" style={{ background: "#E3EDD7", color: "#4C7A2E", borderRadius: 999, padding: "6px 11px", fontSize: 12.5, fontWeight: 700 }}>
+                  ✓ {m.emoji} {m.name}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="tomi-fade-up" style={{ marginTop: 16 }}>
+            <div className="flex flex-wrap gap-2" style={{ marginBottom: 14 }}>
+              {DEMO_PANTRY.map((id) => {
+                const m = ingredientMeta(id);
+                return (
+                  <span key={id} style={{ background: "#E3EDD7", color: "#4C7A2E", borderRadius: 999, padding: "4px 9px", fontSize: 11.5, fontWeight: 700 }}>
+                    {m.emoji} {m.name}
+                  </span>
+                );
+              })}
+            </div>
+            <div className="flex flex-col gap-3">
+              {results.map((r) => (
+                <div key={r.id} className="tomi-bg-white rounded-2xl tomi-shadow-card flex items-center gap-3" style={{ padding: 10 }}>
+                  <img src={r.photo} alt="" style={{ width: 64, height: 64, borderRadius: 14, objectFit: "cover", flexShrink: 0 }} />
+                  <div className="flex-1">
+                    <p className="tomi-display tomi-text-ink" style={{ fontSize: 14.5, fontWeight: 700, margin: 0 }}>{r.name}</p>
+                    <p className="tomi-text-ink-soft" style={{ fontSize: 12, margin: "2px 0 0" }}>⏱️ {r.time} min · 💚 con lo que ya tienes</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="tomi-text-ink-soft text-center" style={{ fontSize: 12, marginTop: 14 }}>
+              Esto fue una demostración. Con Premium, Tomi lo hace con <b>tu</b> despensa real.
+            </p>
+            <button
+              onClick={onWantPremium}
+              className="tomi-tap w-full rounded-2xl"
+              style={{ marginTop: 12, padding: "14px 0", background: "linear-gradient(135deg, #F2A93B, #E85A3B)", boxShadow: "0 10px 20px -10px rgba(232,90,59,0.8)" }}
+            >
+              <span className="tomi-display" style={{ fontSize: 15, fontWeight: 800, color: "#FFFFFF" }}>Quiero Tomi Premium ✨</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Receta rápida del día: cambia cada día, siempre algo de 15 min o menos. */
+function quickRecipeOfTheDay() {
+  const quick = allPhotoRecipes().filter((r) => r.time <= 15).sort((a, b) => a.id.localeCompare(b.id));
+  if (quick.length === 0) return null;
+  const day = Math.floor(Date.now() / 86400000);
+  return quick[day % quick.length];
+}
+
 /* ---------------- Pantalla: Home ---------------- */
 
 function buildHomeSuggestion({ preferences, pantryItems, cookHistory }) {
@@ -4372,6 +4557,11 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
   const pantryIds = pantryItems.map((p) => p.id);
   const zeroCostCount = DECIDE_RECIPES.filter((r) => r.ingredients.every((i) => pantryIds.includes(i))).length;
 
+  // Premium: demostración gratis y aviso "muy pronto".
+  const [showDemo, setShowDemo] = useState(false);
+  const [showPremiumSoon, setShowPremiumSoon] = useState(false);
+  const quickOfDay = quickRecipeOfTheDay();
+
   // Favoritos reales; si todavía no hay, platos con foto para inspirarse.
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const favoriteRecipes = userMemory.preferences.favoriteRecipes.map(findRecipeById).filter(Boolean);
@@ -4393,6 +4583,7 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
   }
 
   return (
+    <div className="h-full" style={{ position: "relative" }}>
     <div className="tomi-bg-page h-full overflow-y-auto tomi-scroll">
       <div
         style={{
@@ -4428,13 +4619,56 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
       </div>
 
       <div className="px-5 mt-5 flex flex-col gap-3">
-        <button onClick={onScan} className="tomi-tap tomi-bg-tomato rounded-3xl px-5 py-5 text-left tomi-shadow-tomato">
-          <span style={{ fontSize: 28 }}>📸</span>
-          <p className="tomi-display" style={{ color: "#FFF8F2", fontSize: 18, fontWeight: 700, marginTop: 6 }}>
-            Escanear mi despensa
-          </p>
-          <p style={{ color: "#FBDCCE", fontSize: 13, marginTop: 2 }}>Muéstrame lo que tienes y buscaré ideas.</p>
-        </button>
+        <div
+          className="rounded-3xl"
+          style={{ position: "relative", padding: 18, background: "linear-gradient(145deg, #3D2B22 0%, #6B3A26 55%, #C23E28 100%)", boxShadow: "0 16px 30px -14px rgba(61,43,34,0.6)" }}
+        >
+          <span className="tomi-display" style={{ position: "absolute", top: 14, right: 14, fontSize: 11, fontWeight: 800, color: "#3D2B22", background: "linear-gradient(135deg, #FCEACA, #F2A93B)", borderRadius: 999, padding: "4px 10px", letterSpacing: 0.5 }}>
+            ✨ PREMIUM
+          </span>
+          <div className="flex items-center gap-3" style={{ paddingRight: 70 }}>
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <TomiHead size={56} pose="curious" />
+              <span style={{ position: "absolute", right: -6, bottom: -4, fontSize: 22 }}>📸</span>
+            </div>
+            <p className="tomi-display" style={{ color: "#FFFFFF", fontSize: 17, fontWeight: 800, lineHeight: 1.2, margin: 0 }}>
+              Tomi mira tu despensa y te dice qué cocinar
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between" style={{ marginTop: 14, gap: 4 }}>
+            {[
+              { icon: "📸", text: "Toma una foto" },
+              { icon: "🧠", text: "Tomi reconoce tus ingredientes" },
+              { icon: "🍳", text: "Recetas con lo que tienes" },
+            ].map((st, i) => (
+              <React.Fragment key={st.text}>
+                {i > 0 && <span style={{ color: "#F2A93B", fontSize: 14, fontWeight: 800 }}>›</span>}
+                <div className="flex flex-col items-center text-center" style={{ flex: 1 }}>
+                  <span style={{ fontSize: 22, width: 42, height: 42, borderRadius: 999, background: "rgba(255,255,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center" }}>{st.icon}</span>
+                  <span style={{ fontSize: 10.5, color: "#F3D9C9", marginTop: 5, lineHeight: 1.2, fontWeight: 600 }}>{st.text}</span>
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+
+          <div className="flex gap-2" style={{ marginTop: 16 }}>
+            <button
+              onClick={() => setShowDemo(true)}
+              className="tomi-tap rounded-2xl"
+              style={{ flex: 1, padding: "12px 0", background: "rgba(255,255,255,0.12)", border: "1.5px solid rgba(255,255,255,0.5)" }}
+            >
+              <span className="tomi-display" style={{ fontSize: 13.5, fontWeight: 700, color: "#FFFFFF" }}>▶️ Ver cómo funciona</span>
+            </button>
+            <button
+              onClick={() => setShowPremiumSoon(true)}
+              className="tomi-tap rounded-2xl"
+              style={{ flex: 1, padding: "12px 0", background: "linear-gradient(135deg, #F2A93B, #E85A3B)", boxShadow: "0 8px 18px -8px rgba(242,169,59,0.9)" }}
+            >
+              <span className="tomi-display" style={{ fontSize: 13.5, fontWeight: 800, color: "#FFFFFF" }}>Descubrir Premium ✨</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="px-5 mt-6">
@@ -4550,23 +4784,39 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
       </div>
 
       <div className="px-5 mt-6" style={{ position: "relative", zIndex: 1 }}>
-        <div className="rounded-3xl px-5 py-4" style={{ background: "rgba(252,234,202,0.96)", boxShadow: "0 10px 24px -12px rgba(20,40,10,0.5)" }}>
-          <h2 className="tomi-display tomi-text-gold" style={{ fontSize: 16, fontWeight: 700 }}>Hoy puedes ahorrar</h2>
-          <p className="tomi-text-ink" style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
-            {zeroCostCount > 0
-              ? <>Con lo que ya tienes puedes preparar <b>{zeroCostCount} receta{zeroCostCount === 1 ? "" : "s"}</b> sin comprar nada.</>
-              : "Escanea tu despensa y te digo cuánto puedes ahorrar."}
-          </p>
-        </div>
+        {quickOfDay && (
+          <button
+            onClick={() => openRecipe(quickOfDay.id)}
+            className="tomi-tap rounded-3xl flex items-center gap-4 w-full"
+            style={{ textAlign: "left", padding: 12, background: "rgba(252,234,202,0.97)", boxShadow: "0 10px 24px -12px rgba(20,40,10,0.5)" }}
+          >
+            <img src={quickOfDay.photo} alt="" style={{ width: 78, height: 78, borderRadius: 18, objectFit: "cover", flexShrink: 0 }} />
+            <div className="flex-1">
+              <p className="tomi-display tomi-text-gold" style={{ fontSize: 13, fontWeight: 800, margin: 0 }}>⚡ Receta rápida del día</p>
+              <p className="tomi-display tomi-text-ink" style={{ fontSize: 16, fontWeight: 700, margin: "2px 0 0", lineHeight: 1.2 }}>{quickOfDay.name}</p>
+              <p className="tomi-text-ink-soft" style={{ fontSize: 12, margin: "3px 0 0" }}>Lista en {quickOfDay.time} minutos</p>
+            </div>
+            <span className="tomi-text-tomato" style={{ fontSize: 22, fontWeight: 700, paddingRight: 4 }}>›</span>
+          </button>
+        )}
         <button
           onClick={onOpenMiTomi}
           className="tomi-tap"
           style={{ marginTop: 12, fontSize: 12, fontWeight: 800, color: "#B9791C", background: "rgba(255,255,255,0.93)", borderRadius: 999, padding: "7px 13px", boxShadow: "0 6px 14px -8px rgba(0,0,0,0.4)" }}
         >
-          🏆 {unlockedAchievements.length} de {ACHIEVEMENTS.length} logros — ver mis logros
+          🏆 {unlockedAchievements.filter((a) => !a.premium).length} de {FREE_ACHIEVEMENTS.length} logros — ver mis logros
         </button>
       </div>
       </div>
+    </div>
+
+      {showDemo && (
+        <PremiumDemo
+          onClose={() => setShowDemo(false)}
+          onWantPremium={() => { setShowDemo(false); setShowPremiumSoon(true); }}
+        />
+      )}
+      {showPremiumSoon && <PremiumSoonModal onClose={() => setShowPremiumSoon(false)} />}
     </div>
   );
 }
@@ -5264,228 +5514,250 @@ function AddIngredientInline({ excludeIds, onAdd, placeholder, emoji }) {
   );
 }
 
-function PerfilScreen({ userMemory, cookHistory, pantryItems, onUpdatePreferences, onClearMemory, onCookRecipe, onExplore }) {
+/* Lo que incluye Tomi Premium (se muestra con candado en Mi Tomi). */
+const PREMIUM_FEATURES = [
+  { icon: "📸", title: "Escanear mi despensa", text: "Tomi ve lo que tienes y te dice qué cocinar." },
+  { icon: "⏱️", title: "Mi tiempo", text: "Recetas que encajan con el tiempo que tienes hoy." },
+  { icon: "💰", title: "Mi presupuesto", text: "Ahorrar al máximo, gastar poco o flexible." },
+  { icon: "🍳", title: "Mi historial", text: "Todo lo que has cocinado, con tus notas." },
+  { icon: "🧠", title: "Esto he aprendido de ti", text: "Tomi recuerda tus gustos y te recomienda mejor." },
+];
+
+function MiTomiSection({ title, children }) {
+  return (
+    <div style={{ marginTop: 22 }}>
+      <p className="tomi-display tomi-text-ink" style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>{title}</p>
+      <div className="flex flex-col gap-3">{children}</div>
+    </div>
+  );
+}
+
+function PerfilScreen({ userMemory, cookHistory, pantryItems, onUpdatePreferences, onClearMemory, onCookRecipe, onExplore, onRename, onOpenFavorites }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const [dislikeReaction, setDislikeReaction] = useState(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(userMemory.preferences.name || "");
+  const [premiumInfo, setPremiumInfo] = useState(null);
   const prefs = userMemory.preferences;
-  const pantryIds = pantryItems.map((p) => p.id);
-  const insights = getUserInsights({ preferences: prefs, cookHistory });
-  const unlockedAchievements = getUnlockedAchievements({ cookHistory, userMemory });
+  const firstName = firstNameOf(prefs.name);
+  const unlocked = getUnlockedAchievements({ cookHistory, userMemory });
+  const unlockedFreeIds = unlocked.filter((a) => !a.premium).map((a) => a.id);
+  const favoriteCount = prefs.favoriteRecipes.length;
 
-  const favoriteRecipeObjs = prefs.favoriteRecipes.map(findRecipeById).filter(Boolean);
-  const recentHistory = [...cookHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
-
-  const cookById = (id) => {
-    const summary = buildRecipeSummaryFromId(id, pantryIds);
-    if (summary) onCookRecipe(summary);
+  const saveNewName = () => {
+    const clean = nameDraft.trim();
+    if (clean) onRename(clean);
+    setEditingName(false);
   };
 
   return (
-    <div className="tomi-bg-page h-full overflow-y-auto tomi-scroll" style={{ position: "relative" }}>
-      <div className="tomi-bg-tomato-soft px-5 pt-8 pb-6 flex flex-col items-center text-center rounded-b-3xl">
-        <TomiBody size={110} pose="thinking" />
-        <p className="tomi-display tomi-text-ink" style={{ fontSize: 18, fontWeight: 700, marginTop: 10 }}>Mi Tomi ❤️</p>
-        <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 6, maxWidth: 260, lineHeight: 1.5 }}>
-          Cuanto más cocinamos juntos, mejor te conozco.
-        </p>
+    <div className="h-full" style={{ position: "relative" }}>
+    <div className="tomi-bg-page h-full overflow-y-auto tomi-scroll">
+      {/* ① La cocina de [nombre] */}
+      <div className="tomi-bg-tomato-soft px-5 pt-7 pb-6 flex flex-col items-center text-center rounded-b-3xl">
+        <TomiBody size={104} pose="wave" animated />
+        {editingName ? (
+          <div className="flex items-center gap-2" style={{ marginTop: 10, width: "100%", maxWidth: 280 }}>
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveNewName(); }}
+              autoFocus
+              className="tomi-chip"
+              style={{ flex: 1, borderRadius: 14, padding: "10px 12px", fontSize: 16, outline: "none", background: "#FFFFFF" }}
+            />
+            <button onClick={saveNewName} className="tomi-tap tomi-bg-tomato rounded-full" style={{ padding: "10px 14px" }}>
+              <span className="tomi-display" style={{ color: "#FFF8F2", fontSize: 13, fontWeight: 700 }}>Guardar</span>
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => { setNameDraft(prefs.name || ""); setEditingName(true); }} className="tomi-tap flex items-center gap-2" style={{ marginTop: 10 }}>
+            <span className="tomi-display tomi-text-ink" style={{ fontSize: 21, fontWeight: 800 }}>
+              {firstName ? `La cocina de ${firstName}` : "Mi Tomi"} 🍅
+            </span>
+            <span style={{ fontSize: 13, background: "rgba(255,255,255,0.8)", borderRadius: 999, padding: "3px 8px" }}>✏️</span>
+          </button>
+        )}
+        <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 4 }}>Cuanto más cocinamos juntos, mejor te conozco.</p>
+        <div className="flex flex-wrap justify-center gap-2" style={{ marginTop: 12 }}>
+          {[
+            `🍳 ${cookHistory.length} ${cookHistory.length === 1 ? "plato cocinado" : "platos cocinados"}`,
+            `🏆 ${unlockedFreeIds.length} de ${FREE_ACHIEVEMENTS.length} logros`,
+            `❤️ ${favoriteCount} ${favoriteCount === 1 ? "favorito" : "favoritos"}`,
+          ].map((t) => (
+            <span key={t} className="tomi-text-ink" style={{ background: "#FFFFFF", borderRadius: 999, padding: "6px 11px", fontSize: 12, fontWeight: 700 }}>{t}</span>
+          ))}
+        </div>
       </div>
 
-      <div className="px-5 mt-4 flex flex-col gap-3 pb-8">
-        <PrefCard icon="❤️" title="Mis favoritos">
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginBottom: 6 }}>Lo que te encanta</p>
-          <IngredientTagList
-            ids={prefs.favoriteFoods}
-            onRemove={(id) => onUpdatePreferences((p) => removeFavoriteFood(p, id))}
-            emptyText="Todavía no agregaste alimentos favoritos."
-          />
-          <AddIngredientInline excludeIds={prefs.favoriteFoods} onAdd={(id) => onUpdatePreferences((p) => addFavoriteFood(p, id))} />
-
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 14, marginBottom: 6 }}>Tus recetas favoritas</p>
-          {favoriteRecipeObjs.length === 0 ? (
-            <p className="tomi-text-ink-soft" style={{ fontSize: 12 }}>Aún no tienes recetas favoritas guardadas.</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {favoriteRecipeObjs.map((r) => (
-                <div key={r.id} className="flex items-center gap-2" style={{ background: "#F2EEE4", borderRadius: 14, padding: "8px 10px" }}>
-                  <span style={{ fontSize: 18 }}>{r.emoji}</span>
-                  <span className="flex-1" style={{ fontSize: 13, fontWeight: 600 }}>{r.name}</span>
-                  <button onClick={() => cookById(r.id)} className="tomi-tap tomi-bg-tomato rounded-full" style={{ padding: "5px 10px" }}>
-                    <span className="tomi-display" style={{ color: "#FFF8F2", fontSize: 11, fontWeight: 700 }}>🍳 Cocinar</span>
-                  </button>
-                  <button onClick={() => onUpdatePreferences((p) => removeFavoriteRecipe(p, r.id))} className="tomi-tap" style={{ fontSize: 11, color: "#C23E28" }}>✕</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </PrefCard>
-
-        <PrefCard icon="🚫" title="Lo que prefieres evitar">
-          <div className="grid grid-cols-2 gap-3">
-            {FOOD_OPTIONS.map((f) => (
-              <Chip
-                key={f.id}
-                active={prefs.dislikedFoods.includes(f.id)}
-                onClick={() =>
-                  onUpdatePreferences((p) =>
-                    p.dislikedFoods.includes(f.id) ? removeDislikedFood(p, f.id) : addDislikedFood(p, f.id)
-                  )
-                }
-              >
-                <span style={{ marginRight: 6 }}>{f.emoji}</span>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>{f.label}</span>
-              </Chip>
-            ))}
-          </div>
-          <p className="tomi-text-ink-soft" style={{ fontSize: 13, fontWeight: 600, marginTop: 14, marginBottom: 6 }}>¿Hay alguno más?</p>
-          <IngredientTagList
-            ids={prefs.dislikedFoods.filter((id) => !FOOD_OPTIONS.some((f) => f.id === id))}
-            onRemove={(id) => onUpdatePreferences((p) => removeDislikedFood(p, id))}
-            emptyText="No hay alimentos que evitar por ahora."
-          />
-          <AddIngredientInline
-            excludeIds={prefs.dislikedFoods}
-            placeholder="Escribe un ingrediente que prefieras evitar…"
-            emoji="🚫"
-            onAdd={(id) => {
-              onUpdatePreferences((p) => addDislikedFood(p, id));
-              setDislikeReaction("¡Entendido! 🍅 Lo tendré en cuenta.");
-              setTimeout(() => setDislikeReaction(null), 1800);
-            }}
-          />
-          {dislikeReaction && <p className="tomi-text-tomato-deep tomi-pop-in" style={{ fontSize: 12, marginTop: 8, fontWeight: 700 }}>{dislikeReaction}</p>}
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 10 }}>Tranquila, intentaré no recomendarte estas cosas.</p>
-        </PrefCard>
-
-        <PrefCard icon="⏱️" title="Mi tiempo">
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginBottom: 8 }}>Normalmente tienes…</p>
-          <div className="flex flex-wrap gap-2">
-            {DECIDE_TIME_CHOICES.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => onUpdatePreferences((p) => updateCookingTimePreference(p, t.id))}
-                className="tomi-tap"
-                style={{ borderRadius: 999, padding: "8px 13px", fontSize: 12, fontWeight: 700, background: prefs.cookingTimePreference === t.id ? "#FBDCCE" : "#F2EEE4", border: prefs.cookingTimePreference === t.id ? "2px solid #E85A3B" : "2px solid transparent" }}
-              >
-                {t.emoji} {t.label}
-              </button>
-            ))}
-          </div>
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 10 }}>Así puedo buscar recetas que encajen mejor con tu día.</p>
-        </PrefCard>
-
-        <PrefCard icon="💰" title="Mi presupuesto">
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginBottom: 8 }}>Tu prioridad al comprar</p>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: "cero", emoji: "💚", label: "Ahorrar al máximo" },
-              { id: "poco", emoji: "🟢", label: "Gastar poco" },
-              { id: "flexible", emoji: "🟡", label: "Flexible" },
-            ].map((b) => (
-              <button
-                key={b.id}
-                onClick={() => onUpdatePreferences((p) => updateBudgetPreference(p, b.id))}
-                className="tomi-tap"
-                style={{ borderRadius: 999, padding: "8px 13px", fontSize: 12, fontWeight: 700, background: prefs.budgetPreference === b.id ? "#E3EDD7" : "#F2EEE4", border: prefs.budgetPreference === b.id ? "2px solid #6E9B47" : "2px solid transparent" }}
-              >
-                {b.emoji} {b.label}
-              </button>
-            ))}
-          </div>
-          <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 10 }}>Cuando quieras ahorrar, priorizaré lo que ya tienes.</p>
-        </PrefCard>
-
-        <PrefCard icon="🍳" title="Mi historial">
-          {recentHistory.length === 0 ? (
-            <TomiEmptyState
-              icon="🍳"
-              title="Todavía no hemos cocinado juntos."
-              tomiText="¿Empezamos con algo fácil?"
-              actionLabel="Encontrar una receta"
-              onAction={onExplore}
+      <div className="px-5 pb-8">
+        {/* ② Tus gustos */}
+        <MiTomiSection title="Tus gustos">
+          <PrefCard icon="🥰" title="Ingredientes que me encantan">
+            <IngredientTagList
+              ids={prefs.favoriteFoods}
+              onRemove={(id) => onUpdatePreferences((p) => removeFavoriteFood(p, id))}
+              emptyText="Todavía no agregaste ingredientes favoritos."
             />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {recentHistory.slice(0, 6).map((h, i) => (
-                <div key={i} style={{ background: "#F2EEE4", borderRadius: 14, padding: "10px 12px" }}>
-                  <div className="flex items-center gap-2">
-                    <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{h.recipeName}</span>
-                    <span style={{ fontSize: 16 }}>{RATING_EMOJI[h.rating] || "🍅"}</span>
-                  </div>
-                  <p className="tomi-text-ink-soft" style={{ fontSize: 11, marginTop: 3 }}>{daysAgoLabel(h.date)}</p>
-                  <button onClick={() => cookById(h.recipeId)} className="tomi-tap tomi-bg-white rounded-full" style={{ marginTop: 6, padding: "5px 12px", border: "2px solid #EADFCF" }}>
-                    <span className="tomi-display" style={{ fontSize: 11, fontWeight: 700 }}>Volver a cocinar</span>
-                  </button>
+            <AddIngredientInline excludeIds={prefs.favoriteFoods} onAdd={(id) => onUpdatePreferences((p) => addFavoriteFood(p, id))} />
+          </PrefCard>
+
+          <PrefCard icon="🚫" title="Lo que prefiero evitar">
+            <div className="grid grid-cols-2 gap-3">
+              {FOOD_OPTIONS.map((f) => (
+                <Chip
+                  key={f.id}
+                  active={prefs.dislikedFoods.includes(f.id)}
+                  onClick={() =>
+                    onUpdatePreferences((p) =>
+                      p.dislikedFoods.includes(f.id) ? removeDislikedFood(p, f.id) : addDislikedFood(p, f.id)
+                    )
+                  }
+                >
+                  <span style={{ marginRight: 6 }}>{f.emoji}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{f.label}</span>
+                </Chip>
+              ))}
+            </div>
+            <p className="tomi-text-ink-soft" style={{ fontSize: 13, fontWeight: 600, marginTop: 14, marginBottom: 6 }}>¿Hay alguno más?</p>
+            <IngredientTagList
+              ids={prefs.dislikedFoods.filter((id) => !FOOD_OPTIONS.some((f) => f.id === id))}
+              onRemove={(id) => onUpdatePreferences((p) => removeDislikedFood(p, id))}
+              emptyText="No hay alimentos que evitar por ahora."
+            />
+            <AddIngredientInline
+              excludeIds={prefs.dislikedFoods}
+              placeholder="Escribe un ingrediente que prefieras evitar…"
+              emoji="🚫"
+              onAdd={(id) => {
+                onUpdatePreferences((p) => addDislikedFood(p, id));
+                setDislikeReaction("¡Entendido! 🍅 Lo tendré en cuenta.");
+                setTimeout(() => setDislikeReaction(null), 1800);
+              }}
+            />
+            {dislikeReaction && <p className="tomi-text-tomato-deep tomi-pop-in" style={{ fontSize: 12, marginTop: 8, fontWeight: 700 }}>{dislikeReaction}</p>}
+            <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 10 }}>No te recomendaré platos con estos ingredientes.</p>
+          </PrefCard>
+
+          <PrefCard icon="🔊" title="Voz de Tomi">
+            <div className="flex items-center justify-between gap-3">
+              <p className="tomi-text-ink-soft" style={{ fontSize: 12 }}>Te leo los pasos de la receta en voz alta.</p>
+              <button
+                onClick={() => onUpdatePreferences((p) => toggleVoiceEnabled(p))}
+                className="tomi-tap"
+                aria-label="Activar o silenciar la voz de Tomi"
+                style={{ width: 50, height: 28, borderRadius: 999, position: "relative", flexShrink: 0, background: prefs.voiceEnabled ? "#E85A3B" : "#D3D1C7", transition: "background 0.15s" }}
+              >
+                <span style={{ width: 22, height: 22, background: "#FFF8F2", borderRadius: "50%", position: "absolute", top: 3, left: prefs.voiceEnabled ? 25 : 3, transition: "left 0.15s" }} />
+              </button>
+            </div>
+            {prefs.voiceEnabled && (
+              <button
+                onClick={() => speakTomiMessage("¡Hola! Así sueno cuando te acompaño mientras cocinas.", true, TOMI_COOKING_RATE)}
+                className="tomi-tap"
+                style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "#B9791C" }}
+              >
+                ▶️ Escuchar a Tomi
+              </button>
+            )}
+          </PrefCard>
+
+          <button
+            onClick={onOpenFavorites}
+            className="tomi-tap tomi-bg-white rounded-2xl tomi-shadow-card flex items-center gap-3"
+            style={{ padding: "14px 16px", textAlign: "left", width: "100%" }}
+          >
+            <span style={{ fontSize: 20 }}>❤️</span>
+            <span className="tomi-display tomi-text-ink flex-1" style={{ fontSize: 15, fontWeight: 700 }}>Ver mis recetas favoritas</span>
+            <span className="tomi-text-tomato" style={{ fontSize: 20, fontWeight: 700 }}>›</span>
+          </button>
+        </MiTomiSection>
+
+        {/* ③ Tus logros */}
+        <MiTomiSection title={`Tus logros · ${unlockedFreeIds.length} de ${FREE_ACHIEVEMENTS.length}`}>
+          <div className="grid grid-cols-3 gap-2">
+            {FREE_ACHIEVEMENTS.map((a) => {
+              const done = unlockedFreeIds.includes(a.id);
+              return (
+                <div
+                  key={a.id}
+                  className="tomi-bg-white rounded-2xl flex flex-col items-center text-center"
+                  style={{ padding: "12px 6px", boxShadow: done ? "0 6px 16px -8px rgba(232,90,59,0.5)" : "none", border: done ? "2px solid #F2A93B" : "2px solid #EADFCF" }}
+                >
+                  <span style={{ fontSize: 30, filter: done ? "none" : "grayscale(1)", opacity: done ? 1 : 0.4 }}>{a.icon}</span>
+                  <p className="tomi-display" style={{ fontSize: 11.5, fontWeight: 700, marginTop: 6, lineHeight: 1.15, color: done ? "#3D2B22" : "#A89A8F" }}>{a.title}</p>
+                  <p style={{ fontSize: 9.5, marginTop: 3, lineHeight: 1.25, color: "#A89A8F" }}>{a.text}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </PrefCard>
-
-        <PrefCard icon="🧠" title="Esto he aprendido de ti">
-          {insights.statements.length === 0 ? (
-            <p className="tomi-text-ink-soft" style={{ fontSize: 12 }}>Todavía estoy conociéndote. ¡Sigamos cocinando! 🍅</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {insights.statements.map((s, i) => (
-                <p key={i} className="tomi-text-ink" style={{ fontSize: 13, lineHeight: 1.5 }}>🍅 {s}</p>
-              ))}
-            </div>
-          )}
-        </PrefCard>
-
-        <PrefCard icon="🏆" title="Logros de Tomi">
-          {unlockedAchievements.length === 0 ? (
-            <TomiEmptyState icon="🏆" title="Tu primera aventura culinaria está a punto de empezar." />
-          ) : (
-            <div className="flex flex-col gap-2">
-              {unlockedAchievements.map((a) => (
-                <div key={a.id} className="flex items-center gap-3" style={{ background: "#FCEACA", borderRadius: 14, padding: "10px 12px" }}>
-                  <span style={{ fontSize: 20 }}>{a.icon}</span>
-                  <div>
-                    <p className="tomi-display tomi-text-ink" style={{ fontSize: 13, fontWeight: 700 }}>{a.title}</p>
-                    <p className="tomi-text-ink-soft" style={{ fontSize: 11, marginTop: 2 }}>{a.text}</p>
-                  </div>
-                </div>
-              ))}
-              <p className="tomi-text-ink-soft" style={{ fontSize: 11, marginTop: 2 }}>
-                {unlockedAchievements.length} de {ACHIEVEMENTS.length} logros. ¡Cada comida cuenta! 🍅
-              </p>
-            </div>
-          )}
-        </PrefCard>
-
-        <PrefCard icon="🔊" title="Voz de Tomi">
-          <div className="flex items-center justify-between">
-            <p className="tomi-text-ink-soft" style={{ fontSize: 12, maxWidth: 220 }}>Tomi puede leer sus mensajes en voz alta.</p>
-            <button
-              onClick={() => onUpdatePreferences((p) => toggleVoiceEnabled(p))}
-              className="tomi-tap"
-              style={{ borderRadius: 999, padding: "8px 14px", fontSize: 12, fontWeight: 700, background: prefs.voiceEnabled ? "#FBDCCE" : "#F2EEE4", border: prefs.voiceEnabled ? "2px solid #E85A3B" : "2px solid transparent" }}
-            >
-              {prefs.voiceEnabled ? "🔊 Activada" : "🔇 Silenciada"}
-            </button>
+              );
+            })}
           </div>
-          {prefs.voiceEnabled && (
-            <button
-              onClick={() => speakTomiMessage("¡Hola! Así sueno cuando te acompaño mientras cocinas.", true, TOMI_COOKING_RATE)}
-              className="tomi-tap"
-              style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: "#B9791C" }}
-            >
-              🔊 Escuchar mensaje
-            </button>
-          )}
-        </PrefCard>
+          <p className="tomi-text-ink-soft text-center" style={{ fontSize: 12 }}>✨ Con Premium desbloqueas 3 logros especiales.</p>
+        </MiTomiSection>
 
-        <button onClick={() => setConfirmClear(true)} className="tomi-tap" style={{ fontSize: 12, fontWeight: 700, color: "#8A7669", textAlign: "center", marginTop: 6 }}>
-          🧹 Reiniciar lo que Tomi ha aprendido
+        {/* ④ Tomi Premium */}
+        <div
+          className="rounded-3xl"
+          style={{ marginTop: 24, padding: 18, background: "linear-gradient(145deg, #3D2B22 0%, #6B3A26 55%, #C23E28 100%)", boxShadow: "0 16px 30px -14px rgba(61,43,34,0.6)" }}
+        >
+          <div className="flex items-center gap-3">
+            <TomiHead size={52} pose="excited" />
+            <div>
+              <p className="tomi-display" style={{ fontSize: 19, fontWeight: 800, color: "#FFFFFF", margin: 0 }}>Tomi Premium ✨</p>
+              <p style={{ fontSize: 12.5, color: "#FCEACA", margin: "2px 0 0" }}>Tomi aprende de ti y cocina con lo que tienes.</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2" style={{ marginTop: 14 }}>
+            {PREMIUM_FEATURES.map((f) => (
+              <button
+                key={f.title}
+                onClick={() => setPremiumInfo(f)}
+                className="tomi-tap flex items-center gap-3"
+                style={{ textAlign: "left", width: "100%", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 16, padding: "10px 12px" }}
+              >
+                <span style={{ fontSize: 22 }}>{f.icon}</span>
+                <span className="flex-1">
+                  <span className="tomi-display" style={{ display: "block", fontSize: 14, fontWeight: 700, color: "#FFFFFF" }}>{f.title}</span>
+                  <span style={{ display: "block", fontSize: 11.5, color: "#F3D9C9", marginTop: 1 }}>{f.text}</span>
+                </span>
+                <span style={{ fontSize: 16 }}>🔒</span>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setPremiumInfo(PREMIUM_FEATURES[0])}
+            className="tomi-tap w-full rounded-2xl"
+            style={{ marginTop: 14, padding: "13px 0", background: "linear-gradient(135deg, #F2A93B, #E85A3B)", boxShadow: "0 10px 20px -10px rgba(242,169,59,0.8)" }}
+          >
+            <span className="tomi-display" style={{ fontSize: 15, fontWeight: 800, color: "#FFFFFF" }}>Descubrir Tomi Premium</span>
+          </button>
+        </div>
+
+        <button onClick={() => setConfirmClear(true)} className="tomi-tap w-full" style={{ fontSize: 12, fontWeight: 700, color: "#A89A8F", textAlign: "center", marginTop: 22 }}>
+          🧹 Reiniciar lo que Tomi aprendió
         </button>
       </div>
+    </div>
+
+      {premiumInfo && (
+        <div onClick={() => setPremiumInfo(null)} style={{ position: "absolute", inset: 0, background: "rgba(61,43,34,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="tomi-bg-cream rounded-3xl tomi-pop-in" style={{ padding: 22, width: "100%", textAlign: "center" }}>
+            <TomiHead size={64} pose="excited" />
+            <p className="tomi-display tomi-text-ink" style={{ fontSize: 17, fontWeight: 800, marginTop: 8 }}>{premiumInfo.icon} {premiumInfo.title}</p>
+            <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 6, lineHeight: 1.45 }}>
+              {premiumInfo.text} Esta función es parte de Tomi Premium, que llega muy pronto ✨
+            </p>
+            <button onClick={() => setPremiumInfo(null)} className="tomi-tap tomi-bg-tomato rounded-2xl w-full" style={{ padding: "12px 0", marginTop: 16 }}>
+              <span className="tomi-display" style={{ color: "#FFF8F2", fontWeight: 700, fontSize: 14 }}>¡Genial!</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {confirmClear && (
         <div style={{ position: "absolute", inset: 0, background: "rgba(61,43,34,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zIndex: 20 }}>
           <div className="tomi-bg-cream rounded-3xl tomi-pop-in" style={{ padding: 22, width: "100%", textAlign: "center" }}>
-            <p className="tomi-display tomi-text-ink" style={{ fontSize: 16, fontWeight: 700 }}>¿Quieres borrar tus preferencias y aprendizajes?</p>
-            <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 6 }}>Esto no eliminará tu cuenta.</p>
+            <p className="tomi-display tomi-text-ink" style={{ fontSize: 16, fontWeight: 700 }}>¿Quieres borrar tus gustos y lo que Tomi aprendió?</p>
+            <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 6 }}>Tu nombre se mantiene.</p>
             <div className="flex flex-col gap-3" style={{ marginTop: 16 }}>
               <button onClick={() => { onClearMemory(); setConfirmClear(false); }} className="tomi-tap tomi-bg-tomato rounded-2xl" style={{ padding: "12px 0" }}>
                 <span className="tomi-display" style={{ color: "#FFF8F2", fontWeight: 700, fontSize: 14 }}>Sí, borrar</span>
@@ -7761,6 +8033,11 @@ export default function App() {
                     onClearMemory={clearMemory}
                     onCookRecipe={openCookFlow}
                     onExplore={goToCocinar}
+                    onRename={(name) => {
+                      saveName(name);
+                      updatePreferences((prev) => ({ ...prev, name }));
+                    }}
+                    onOpenFavorites={() => setMainTab("favoritos")}
                   />
                 )}
               </div>
