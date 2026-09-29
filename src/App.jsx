@@ -2528,7 +2528,7 @@ function buildCulinaryContext({ availableIngredientItems, preferences, timeChoic
       context.favoriteFoods = preferences.favoriteFoods.map((id) => ingredientMeta(id).name);
     }
     if (preferences.favoriteRecipes?.length > 0) {
-      const names = preferences.favoriteRecipes.map((id) => DECIDE_RECIPES.find((r) => r.id === id)?.name).filter(Boolean);
+      const names = preferences.favoriteRecipes.map((id) => findRecipeById(id)?.name).filter(Boolean);
       if (names.length > 0) context.favoriteRecipes = names;
     }
   }
@@ -3558,7 +3558,7 @@ const MOCK_USER_PREFERENCES = {
   wantsNewsletter: false,
   favoriteFoods: ["huevo", "papa", "arroz"],
   dislikedFoods: [],
-  favoriteRecipes: ["tortilla_papa"],
+  favoriteRecipes: [],
   cookingTimePreference: "20",
   budgetPreference: "cero",
   dietaryPreferences: [],
@@ -3630,8 +3630,30 @@ function getUserInsights({ preferences, cookHistory }) {
 /* Reconstruye el objeto de receta que consumen Decidir/Ahorro/Cocinar
    a partir de un id guardado (favorito o historial), cruzándolo con la
    despensa actual. */
+/* Busca una receta por id en TODAS las fuentes (decidir, categorías y países),
+   para que un favorito funcione sin importar de dónde vino. */
+function findRecipeById(id) {
+  return (
+    DECIDE_RECIPES.find((r) => r.id === id) ||
+    CATEGORY_RECIPES.find((r) => r.id === id) ||
+    COUNTRY_RECIPES.find((r) => r.id === id) ||
+    null
+  );
+}
+
+/* Platos con foto real que se muestran en Inicio mientras la persona
+   todavía no ha guardado favoritos. */
+const HOME_SUGGESTED_RECIPE_IDS = [
+  "co_bandeja_paisa",
+  "ve_pabellon_criollo",
+  "co_ajiaco_santafereno",
+  "ve_arepa_reina_pepiada",
+  "co_arepa_de_huevo",
+  "ve_tequenos",
+];
+
 function buildRecipeSummaryFromId(id, pantryIds) {
-  const base = DECIDE_RECIPES.find((r) => r.id === id);
+  const base = findRecipeById(id);
   if (!base) return null;
   const available = base.ingredients.filter((i) => pantryIds.includes(i));
   const missing = base.ingredients.filter((i) => !pantryIds.includes(i));
@@ -4140,11 +4162,25 @@ function FirstRunScreen({ onScan, onSkip }) {
   );
 }
 
+/* Miniatura de receta: usa la foto real del plato si existe; si no, la foto
+   del ingrediente principal; y como último recurso, el emoji. */
+function RecipeThumb({ recipe, height = 100 }) {
+  const src = recipe.photo || ingredientPhoto(recipe.ingredients?.[0]);
+  if (src) {
+    return <img src={src} alt={recipe.name} style={{ width: "100%", height, objectFit: "cover", display: "block" }} />;
+  }
+  return (
+    <div className="tomi-bg-tomato-soft flex items-center justify-center" style={{ width: "100%", height, fontSize: 36 }}>
+      {recipe.emoji}
+    </div>
+  );
+}
+
 /* ---------------- Pantalla: Home ---------------- */
 
 function buildHomeSuggestion({ preferences, pantryItems, cookHistory }) {
   const pantryIds = pantryItems.map((p) => p.id);
-  const favoriteRecipeObjs = preferences.favoriteRecipes.map((id) => DECIDE_RECIPES.find((r) => r.id === id)).filter(Boolean);
+  const favoriteRecipeObjs = preferences.favoriteRecipes.map(findRecipeById).filter(Boolean);
 
   const readyFavorite = favoriteRecipeObjs.find((r) => r.ingredients.filter((i) => pantryIds.includes(i)).length >= r.ingredients.length - 1);
   if (readyFavorite) {
@@ -4175,6 +4211,26 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
 
   const pantryIds = pantryItems.map((p) => p.id);
   const zeroCostCount = DECIDE_RECIPES.filter((r) => r.ingredients.every((i) => pantryIds.includes(i))).length;
+
+  // Favoritos reales; si todavía no hay, platos con foto para inspirarse.
+  const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const favoriteRecipes = userMemory.preferences.favoriteRecipes.map(findRecipeById).filter(Boolean);
+  const hasFavorites = favoriteRecipes.length > 0;
+  const homeRecipes = hasFavorites ? favoriteRecipes : HOME_SUGGESTED_RECIPE_IDS.map(findRecipeById).filter(Boolean);
+  const openRecipe = (id) => {
+    const summary = buildRecipeSummaryFromId(id, pantryIds);
+    if (summary) setSelectedRecipe(summary);
+  };
+
+  if (selectedRecipe) {
+    return (
+      <RecipeDetailView
+        recipe={selectedRecipe}
+        onBack={() => setSelectedRecipe(null)}
+        onCook={(r) => onCookRecipe({ ...r, isRecommended: false })}
+      />
+    );
+  }
 
   return (
     <div className="tomi-bg-page h-full overflow-y-auto tomi-scroll">
@@ -4287,14 +4343,23 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
       )}
 
       <div className="px-5 mt-7">
-        <h2 className="tomi-display tomi-text-ink" style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>Tus favoritos ❤️</h2>
+        <h2 className="tomi-display tomi-text-ink" style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>
+          {hasFavorites ? "Tus favoritos ❤️" : "Platos para inspirarte 🍽️"}
+        </h2>
         <div className="flex gap-3 overflow-x-auto tomi-scroll" style={{ paddingBottom: 4 }}>
-          {MOCK_RECIPES.slice(0, 4).map((r) => (
-            <div key={r.id} className="tomi-bg-white rounded-2xl tomi-shadow-card" style={{ minWidth: 140, padding: 14, flexShrink: 0 }}>
-              <span style={{ fontSize: 26 }}>{r.emoji}</span>
-              <p className="tomi-display tomi-text-ink" style={{ fontSize: 14, fontWeight: 700, marginTop: 8 }}>{r.name}</p>
-              <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 4 }}>{r.time}</p>
-            </div>
+          {homeRecipes.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => openRecipe(r.id)}
+              className="tomi-tap tomi-bg-white rounded-2xl tomi-shadow-card"
+              style={{ width: 150, flexShrink: 0, overflow: "hidden", textAlign: "left", padding: 0 }}
+            >
+              <RecipeThumb recipe={r} height={100} />
+              <div style={{ padding: "10px 12px 12px" }}>
+                <p className="tomi-display tomi-text-ink" style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{r.name}</p>
+                <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 4 }}>⏱️ {r.time} min</p>
+              </div>
+            </button>
           ))}
         </div>
       </div>
@@ -4733,7 +4798,7 @@ function CocinarScreen({ pantryItems, userMemory, onCookRecipe }) {
 
 function FavoritosScreen({ userMemory, pantryItems, onCookRecipe, onExplore }) {
   const pantryIds = pantryItems.map((p) => p.id);
-  const favoriteRecipeObjs = userMemory.preferences.favoriteRecipes.map((id) => DECIDE_RECIPES.find((r) => r.id === id)).filter(Boolean);
+  const favoriteRecipeObjs = userMemory.preferences.favoriteRecipes.map(findRecipeById).filter(Boolean);
 
   const cookById = (id) => {
     const summary = buildRecipeSummaryFromId(id, pantryIds);
@@ -4760,10 +4825,12 @@ function FavoritosScreen({ userMemory, pantryItems, onCookRecipe, onExplore }) {
       ) : (
         <div className="grid grid-cols-2 gap-3 px-5 mt-5 pb-8">
           {favoriteRecipeObjs.map((r) => (
-            <button key={r.id} onClick={() => cookById(r.id)} className="tomi-tap tomi-bg-white rounded-2xl tomi-shadow-card" style={{ padding: 14, textAlign: "left" }}>
-              <span style={{ fontSize: 24 }}>{r.emoji}</span>
-              <p className="tomi-display tomi-text-ink" style={{ fontSize: 14, fontWeight: 700, marginTop: 8 }}>{r.name}</p>
-              <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 4 }}>⏱️ {r.time} min</p>
+            <button key={r.id} onClick={() => cookById(r.id)} className="tomi-tap tomi-bg-white rounded-2xl tomi-shadow-card" style={{ padding: 0, overflow: "hidden", textAlign: "left" }}>
+              <RecipeThumb recipe={r} height={110} />
+              <div style={{ padding: "10px 12px 12px" }}>
+                <p className="tomi-display tomi-text-ink" style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2 }}>{r.name}</p>
+                <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 4 }}>⏱️ {r.time} min</p>
+              </div>
             </button>
           ))}
         </div>
@@ -4870,7 +4937,7 @@ function PerfilScreen({ userMemory, cookHistory, pantryItems, onUpdatePreference
   const insights = getUserInsights({ preferences: prefs, cookHistory });
   const unlockedAchievements = getUnlockedAchievements({ cookHistory, userMemory });
 
-  const favoriteRecipeObjs = prefs.favoriteRecipes.map((id) => DECIDE_RECIPES.find((r) => r.id === id)).filter(Boolean);
+  const favoriteRecipeObjs = prefs.favoriteRecipes.map(findRecipeById).filter(Boolean);
   const recentHistory = [...cookHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const cookById = (id) => {
