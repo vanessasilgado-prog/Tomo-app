@@ -4878,49 +4878,116 @@ function RecipeDetailView({ recipe, onBack, onCook }) {
   );
 }
 
+/* Etiqueta pequeña de origen para cada plato en Cocinar. */
+const RECIPE_ORIGIN_BADGE = {
+  colombia: "🇨🇴", venezuela: "🇻🇪", mexico: "🇲🇽",
+  desayuno: "🍳", ensalada: "🥬", batido: "🥤", restaurante: "🍽️",
+};
+
+/* Todos los platos que tienen foto real, de todas las categorías y países. */
+function allPhotoRecipes() {
+  return [...CATEGORY_RECIPES, ...DECIDE_RECIPES, ...COUNTRY_RECIPES].filter((r) => r.photo);
+}
+
+function RecipePhotoTile({ recipe, isFavorite, onClick }) {
+  const badge = RECIPE_ORIGIN_BADGE[recipe.country] || RECIPE_ORIGIN_BADGE[recipe.group];
+  return (
+    <button
+      onClick={onClick}
+      className="tomi-tap rounded-2xl text-left"
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        height: 150,
+        backgroundColor: "#FBDCCE",
+        backgroundImage: recipe.photo ? `url(${recipe.photo})` : "none",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        boxShadow: "0 6px 16px -6px rgba(61,43,34,0.25)",
+      }}
+    >
+      {!recipe.photo && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 30, fontSize: 44 }}>{recipe.emoji}</div>
+      )}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.7) 100%)" }} />
+      {badge && (
+        <span style={{ position: "absolute", top: 8, left: 8, zIndex: 2, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "2px 7px", fontSize: 13 }}>
+          {badge}
+        </span>
+      )}
+      {isFavorite && (
+        <span style={{ position: "absolute", top: 8, right: 8, zIndex: 2, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "2px 6px", fontSize: 12 }}>❤️</span>
+      )}
+      <div style={{ position: "absolute", left: 10, right: 10, bottom: 9, zIndex: 2 }}>
+        <p className="tomi-display" style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF", textShadow: "0 1px 4px rgba(0,0,0,0.6)", margin: 0, lineHeight: 1.2 }}>
+          {recipe.name}
+        </p>
+        <p style={{ fontSize: 11, color: "#FBDCCE", textShadow: "0 1px 4px rgba(0,0,0,0.6)", margin: "3px 0 0", fontWeight: 700 }}>
+          ⏱️ {recipe.time} min
+        </p>
+      </div>
+    </button>
+  );
+}
+
 function CocinarScreen({ pantryItems, userMemory, onCookRecipe }) {
   const [filter, setFilter] = useState("todo");
   const [selectedRecipe, setSelectedRecipe] = useState(null);
 
   const pantryIds = pantryItems.map((p) => p.id);
   const dislikedFoodIds = userMemory.preferences.dislikedFoods;
-  const favoriteFoodIds = userMemory.preferences.favoriteFoods;
+  const favoriteIds = userMemory.preferences.favoriteRecipes;
 
   const withAvailability = (r) => ({
     ...r,
     availableIngredients: r.ingredients.filter((i) => pantryIds.includes(i)),
     missingIngredients: r.ingredients.filter((i) => !pantryIds.includes(i)),
   });
+  const notDisliked = (r) => !r.ingredients.some((i) => dislikedFoodIds.includes(i));
 
-  const allowed = DECIDE_RECIPES.filter((r) => !r.ingredients.some((i) => dislikedFoodIds.includes(i))).map(withAvailability);
+  // Todo: todos los platos con foto (sin los que tengan algo que la persona evita).
+  const allList = allPhotoRecipes().filter(notDisliked);
 
-  const timeLimit = { "10": 10, "20": 20, "30": 30, mas: 999 }[userMemory.preferences.cookingTimePreference] ?? 20;
-  const quickList = allowed.filter((r) => r.time <= timeLimit);
+  // Rápido: los mismos platos, del más rápido al más lento, agrupados por tiempo.
+  const quickSorted = [...allList].sort((a, b) => a.time - b.time);
+  const quickGroups = [
+    { title: "⚡ Listos en 15 min o menos", items: quickSorted.filter((r) => r.time <= 15) },
+    { title: "⏱️ En 30 min o menos", items: quickSorted.filter((r) => r.time > 15 && r.time <= 30) },
+    { title: "🕐 En 1 hora o menos", items: quickSorted.filter((r) => r.time > 30 && r.time <= 60) },
+    { title: "🍲 Para cocinar con calma", items: quickSorted.filter((r) => r.time > 60) },
+  ].filter((g) => g.items.length > 0);
 
-  const savingsList = calculateSavingsOptions({ pantryIds, budgetMode: "poco", dislikedFoodIds, favoriteFoodIds });
-
-  const favoriteList = userMemory.preferences.favoriteRecipes.map((id) => allowed.find((r) => r.id === id)).filter(Boolean);
+  // Favorito: los favoritos de la persona; mientras no tenga, los que Tomi recomienda en Inicio.
+  const realFavorites = favoriteIds.map(findRecipeById).filter(Boolean);
+  const hasFavorites = realFavorites.length > 0;
+  const favoriteList = hasFavorites ? realFavorites : HOME_SUGGESTED_RECIPE_IDS.map(findRecipeById).filter(Boolean);
 
   const filters = [
     { id: "todo", label: "Todo", emoji: "🍽️" },
     { id: "rapido", label: "Rápido", emoji: "⚡" },
-    { id: "ahorro", label: "Ahorro", emoji: "💰" },
     { id: "favorito", label: "Favorito", emoji: "❤️" },
   ];
 
-  const listForFilter = { todo: allowed, rapido: quickList, ahorro: savingsList, favorito: favoriteList }[filter];
-
+  const openRecipe = (r) => setSelectedRecipe(withAvailability(r));
   const handleCook = (recipe) => onCookRecipe({ ...recipe, isRecommended: false });
 
   if (selectedRecipe) {
     return <RecipeDetailView recipe={selectedRecipe} onBack={() => setSelectedRecipe(null)} onCook={handleCook} />;
   }
 
+  const grid = (items) => (
+    <div className="grid grid-cols-2 gap-3">
+      {items.map((r) => (
+        <RecipePhotoTile key={r.id} recipe={r} isFavorite={favoriteIds.includes(r.id)} onClick={() => openRecipe(r)} />
+      ))}
+    </div>
+  );
+
   return (
     <div className="tomi-bg-page h-full overflow-y-auto tomi-scroll">
       <div className="px-5 pt-6 pb-2">
-        <h1 className="tomi-display tomi-text-ink" style={{ fontSize: 20, fontWeight: 700 }}>Según lo que sueles tener en casa</h1>
-        <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 4 }}>🍅 Creo que estas opciones podrían venirte bien.</p>
+        <h1 className="tomi-display tomi-text-ink" style={{ fontSize: 21, fontWeight: 700 }}>¿Qué cocinamos hoy?</h1>
+        <p className="tomi-text-ink-soft" style={{ fontSize: 13, marginTop: 4 }}>🍅 Elige un plato y te guío paso a paso.</p>
       </div>
 
       <div className="flex gap-2 px-5 mt-4 overflow-x-auto tomi-scroll">
@@ -4939,41 +5006,35 @@ function CocinarScreen({ pantryItems, userMemory, onCookRecipe }) {
       </div>
 
       <div className="px-5 mt-5 pb-8">
-        {listForFilter.length === 0 ? (
+        {filter === "todo" && (
           <>
-            {filter === "favorito" && (
-              <TomiEmptyState icon="❤️" title="Tomi todavía no tiene favoritos para mostrarte." actionLabel="Explorar recetas" onAction={() => setFilter("todo")} />
-            )}
-            {filter === "rapido" && (
-              <TomiEmptyState icon="⚡" title="No encontré una receta rápida con lo que tienes." actionLabel="Ver Todo" onAction={() => setFilter("todo")} />
-            )}
-            {filter === "ahorro" && (
-              <TomiEmptyState icon="💰" title="Déjame buscar un poquito más…" actionLabel="Ver otras opciones" onAction={() => setFilter("todo")} />
-            )}
-            {filter === "todo" && <TomiEmptyState icon="🍅" title="No encontré recetas por ahora." tomiText="Prueba escaneando tu despensa." />}
+            <p className="tomi-text-ink-soft" style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>{allList.length} platos para elegir</p>
+            {grid(allList)}
           </>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {listForFilter.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => setSelectedRecipe(r)}
-                className="tomi-tap tomi-bg-white rounded-2xl tomi-shadow-card flex items-center gap-4 px-4 py-4"
-                style={{ textAlign: "left", width: "100%" }}
-              >
-                <div className="tomi-bg-tomato-soft rounded-2xl flex items-center justify-center" style={{ width: 52, height: 52, fontSize: 24 }}>
-                  {r.emoji}
-                </div>
-                <div className="flex-1">
-                  <p className="tomi-display tomi-text-ink" style={{ fontSize: 15, fontWeight: 700 }}>{r.name}</p>
-                  <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 2 }}>
-                    {r.time} min · {r.missingIngredients.length === 0 ? "💚 $0 extra" : `🛒 faltan ${r.missingIngredients.length}`}
-                  </p>
-                </div>
-                {userMemory.preferences.favoriteRecipes.includes(r.id) && <span style={{ fontSize: 16 }}>❤️</span>}
-              </button>
-            ))}
-          </div>
+        )}
+
+        {filter === "rapido" &&
+          quickGroups.map((g) => (
+            <div key={g.title} style={{ marginBottom: 22 }}>
+              <p className="tomi-display tomi-text-ink" style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>
+                {g.title} <span className="tomi-text-ink-soft" style={{ fontSize: 12, fontWeight: 600 }}>· {g.items.length}</span>
+              </p>
+              {grid(g.items)}
+            </div>
+          ))}
+
+        {filter === "favorito" && (
+          <>
+            {!hasFavorites && (
+              <div className="tomi-bg-tomato-soft rounded-2xl flex items-center gap-3" style={{ padding: "10px 14px", marginBottom: 12 }}>
+                <TomiHead size={40} pose="loving" />
+                <p className="tomi-text-ink" style={{ fontSize: 12.5, lineHeight: 1.4, margin: 0 }}>
+                  Aún no tienes favoritos. Estos son los que te recomiendo. Cuando cocines un plato que te encante, lo guardo aquí ❤️
+                </p>
+              </div>
+            )}
+            {grid(favoriteList)}
+          </>
         )}
       </div>
     </div>
