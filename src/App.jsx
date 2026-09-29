@@ -62,6 +62,28 @@ function TomiStyles() {
       .tomi-scroll::-webkit-scrollbar { display: none; }
       .tomi-scroll { -ms-overflow-style: none; scrollbar-width: none; }
 
+      @keyframes tomiSplashIn {
+        0% { transform: translateY(60px) scale(0.5); opacity: 0; }
+        55% { transform: translateY(-14px) scale(1.06); opacity: 1; }
+        75% { transform: translateY(4px) scale(0.98); }
+        100% { transform: translateY(0) scale(1); }
+      }
+      .tomi-splash-in { animation: tomiSplashIn 0.8s cubic-bezier(.2,.8,.3,1.2) both; }
+      @keyframes tomiSway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+      .tomi-sway { animation: tomiSway 1.1s ease-in-out infinite; transform-origin: 50% 90%; }
+      @keyframes tomiSparkle {
+        0% { transform: scale(0) rotate(0deg); opacity: 0; }
+        40% { transform: scale(1.2) rotate(40deg); opacity: 1; }
+        100% { transform: scale(0.6) rotate(90deg); opacity: 0; }
+      }
+      .tomi-sparkle { position: absolute; animation: tomiSparkle 1.2s ease-out infinite; }
+      @keyframes tomiFadeUp { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+      .tomi-fade-up { animation: tomiFadeUp 0.5s ease both; }
+      @keyframes tomiSheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+      .tomi-sheet-up { animation: tomiSheetUp 0.55s cubic-bezier(.2,.8,.2,1) 0.15s both; }
+      @keyframes tomiSplashOut { to { opacity: 0; transform: scale(1.04); } }
+      .tomi-splash-out { animation: tomiSplashOut 0.3s ease forwards; }
+
       @keyframes tomiBlink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(0.12); } }
       .tomi-blink { animation: tomiBlink 4.2s infinite; transform-origin: center; }
 
@@ -3872,123 +3894,240 @@ function ScreenHeader({ title, onBack, step, total }) {
 
 const isValidEmailFormat = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
+/* Animación de entrada: Tomi aparece rebotando, saluda y se emociona.
+   Completa solo la primera vez; en las siguientes es más corta.
+   Tocar la pantalla la salta. */
+const TOMI_SPLASH_KEY = "tomi_splash_visto";
+
+function TomiSplash({ name, onDone }) {
+  const [firstTime] = useState(() => {
+    try {
+      return !window.localStorage.getItem(TOMI_SPLASH_KEY);
+    } catch (e) {
+      return true;
+    }
+  });
+  const total = firstTime ? 2000 : 1100;
+  const [pose, setPose] = useState("wave");
+  const [leaving, setLeaving] = useState(false);
+  const doneRef = useRef(false);
+
+  const finish = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    try {
+      window.localStorage.setItem(TOMI_SPLASH_KEY, "1");
+    } catch (e) {
+      /* sin almacenamiento: no pasa nada */
+    }
+    setLeaving(true);
+    setTimeout(onDone, 280);
+  };
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setPose("excited"), total * 0.5);
+    const t2 = setTimeout(finish, total);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const firstName = firstNameOf(name);
+  const sparkles = [
+    { top: "30%", left: "18%", size: 22, delay: "0.5s" },
+    { top: "24%", right: "20%", size: 16, delay: "0.8s" },
+    { top: "52%", left: "14%", size: 14, delay: "1.1s" },
+    { top: "48%", right: "14%", size: 20, delay: "0.65s" },
+  ];
+
+  return (
+    <div
+      onClick={finish}
+      className={`h-full flex flex-col items-center justify-center ${leaving ? "tomi-splash-out" : ""}`}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        cursor: "pointer",
+        background: "radial-gradient(circle at 50% 42%, #FFE3D3 0%, #FBC9B2 45%, #E85A3B 100%)",
+      }}
+    >
+      {sparkles.map((sp, i) => (
+        <span key={i} className="tomi-sparkle" style={{ top: sp.top, left: sp.left, right: sp.right, fontSize: sp.size, animationDelay: sp.delay }}>
+          ✨
+        </span>
+      ))}
+      <div className="tomi-splash-in">
+        <div className="tomi-sway">
+          <TomiBody size={190} pose={pose} animated />
+        </div>
+      </div>
+      <p className="tomi-display tomi-fade-up" style={{ fontSize: 44, fontWeight: 800, color: "#FFFFFF", margin: "6px 0 0", textShadow: "0 3px 12px rgba(160,40,20,0.35)", animationDelay: "0.35s" }}>
+        Tomi
+      </p>
+      <p className="tomi-fade-up" style={{ fontSize: 14, fontWeight: 700, color: "#FFF6EA", margin: 0, animationDelay: "0.55s" }}>
+        {firstName ? `¡Hola de nuevo, ${firstName}! 🍅` : "Tu ayudante en la cocina 🍅"}
+      </p>
+    </div>
+  );
+}
+
+/* Nombre guardado en este celular, para saludar por su nombre al volver. */
+const TOMI_NAME_KEY = "tomi_nombre";
+function loadSavedName() {
+  try {
+    return window.localStorage.getItem(TOMI_NAME_KEY) || "";
+  } catch (e) {
+    return "";
+  }
+}
+function saveName(name) {
+  try {
+    window.localStorage.setItem(TOMI_NAME_KEY, name);
+  } catch (e) {
+    /* si el navegador no deja guardar, la app sigue funcionando igual */
+  }
+}
+
+/* Primer nombre, con mayúscula inicial: "vanessa silgado" → "Vanessa". */
+function firstNameOf(fullName) {
+  const first = (fullName || "").trim().split(/\s+/)[0] || "";
+  return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+}
+
+const WELCOME_PERKS = [
+  { icon: "🥕", text: "Cocina con lo que ya tienes" },
+  { icon: "💰", text: "Sin gastar de más" },
+  { icon: "⏱️", text: "Recetas fáciles y rápidas" },
+];
+
 function WelcomeScreen({ onSubmit, voiceEnabled }) {
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [wantsNewsletter, setWantsNewsletter] = useState(false);
-  const [nameTouched, setNameTouched] = useState(false);
-  const [emailTouched, setEmailTouched] = useState(false);
+  const [touched, setTouched] = useState(false);
 
   useEffect(() => {
     speakTomiSequence(
-      ["Hola, bienvenido, soy Tomi.", "Estoy aquí para ayudarte a preparar algo rico con lo que tengas en casa."],
+      ["¡Hola! Soy Tomi.", "Te ayudo a cocinar algo rico con lo que tengas en casa. ¿Cómo te llamas?"],
       voiceEnabled
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trimmedName = name.trim();
-  const emailIsValid = isValidEmailFormat(email);
-  const showNameError = nameTouched && trimmedName.length === 0;
-  const showEmailError = emailTouched && email.length > 0 && !emailIsValid;
+  const firstName = firstNameOf(trimmedName);
+  const showError = touched && trimmedName.length === 0;
 
   const handleSubmit = () => {
-    setNameTouched(true);
-    setEmailTouched(true);
-    if (trimmedName.length === 0 || !emailIsValid) return;
-    onSubmit({ name: trimmedName, email: email.trim(), wantsNewsletter });
+    setTouched(true);
+    if (trimmedName.length === 0) return;
+    onSubmit({ name: trimmedName });
   };
 
   return (
-    <div className="h-full flex flex-col md:flex-row" style={{ minHeight: 0 }}>
-      {/* Columna izquierda: branding / Tomi */}
-      <div className="tomi-bg-cream flex flex-col items-center justify-center gap-3 px-8 py-5 md:w-1/2" style={{ flexShrink: 0 }}>
-        <div className="tomi-bg-tomato-soft rounded-full flex items-center justify-center tomi-shadow-tomato" style={{ width: 128, height: 128 }}>
-          <TomiBody size={88} pose="wave" animated />
+    <div className="h-full tomi-scroll" style={{ minHeight: 0, overflowY: "auto", position: "relative", background: "#FFF6EA" }}>
+      {/* Mitad de arriba: Tomi chef en su cocina */}
+      <div
+        style={{
+          position: "relative",
+          height: "52%",
+          minHeight: 320,
+          backgroundImage: `url(${HOME_HERO_IMAGE})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center 20%",
+        }}
+      >
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(255,246,234,0) 60%, rgba(255,246,234,0.55) 100%)" }} />
+        <div
+          key={firstName ? "hola-nombre" : "hola"}
+          className="tomi-pop-in"
+          style={{
+            position: "absolute",
+            top: 22,
+            left: 16,
+            maxWidth: 190,
+            background: "#FFFFFF",
+            borderRadius: 18,
+            padding: "10px 14px",
+            boxShadow: "0 8px 20px -8px rgba(61,43,34,0.35)",
+          }}
+        >
+          <p className="tomi-display tomi-text-ink" style={{ fontSize: 15, fontWeight: 700, margin: 0, lineHeight: 1.25 }}>
+            {firstName ? `¡Mucho gusto, ${firstName}! 🥰` : "¡Hola! ¿Cómo te llamas? 👋"}
+          </p>
+          <span
+            style={{
+              position: "absolute", right: -6, bottom: 16, width: 14, height: 14, background: "#FFFFFF",
+              transform: "rotate(45deg)", borderRadius: 3,
+            }}
+          />
         </div>
-        <p className="tomi-text-ink-soft text-center" style={{ fontSize: 13 }}>Rico • práctico • sin gastar de más</p>
       </div>
 
-      {/* Columna derecha: registro rápido */}
+      {/* Tarjeta que sube desde abajo */}
       <div
-        className="tomi-bg-white flex-1 flex flex-col justify-center px-8 py-6 gap-4 tomi-scroll md:w-1/2"
-        style={{ overflowY: "auto", minHeight: 0 }}
+        className="tomi-sheet-up"
+        style={{
+          position: "relative",
+          marginTop: -34,
+          background: "rgba(255,250,243,0.96)",
+          backdropFilter: "blur(10px)",
+          WebkitBackdropFilter: "blur(10px)",
+          borderRadius: "28px 28px 0 0",
+          padding: "24px 24px 26px",
+          boxShadow: "0 -12px 30px -14px rgba(61,43,34,0.3)",
+        }}
       >
-        <div>
-          <h1 className="tomi-display tomi-text-ink" style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.25 }}>
-            {trimmedName ? `¡Mucho gusto, ${trimmedName}! 🍅` : "Hola, bienvenido, soy Tomi. 🍅"}
-          </h1>
-          <p className="tomi-text-ink-soft" style={{ marginTop: 6, fontSize: 13.5, lineHeight: 1.45 }}>
-            Estoy aquí para ayudarte a preparar algo rico con lo que tengas en casa.
-          </p>
-        </div>
+        <h1 className="tomi-display tomi-text-ink" style={{ fontSize: 25, fontWeight: 800, lineHeight: 1.15, margin: 0 }}>
+          Soy <span className="tomi-text-tomato">Tomi</span>, tu ayudante en la cocina 🍅
+        </h1>
+        <p className="tomi-text-ink-soft" style={{ fontSize: 14, lineHeight: 1.45, marginTop: 8 }}>
+          Te ayudo a decidir qué cocinar hoy, paso a paso y sin complicarte.
+        </p>
 
-        <div className="flex flex-col gap-3">
-          <div>
-            <label className="tomi-text-ink-soft" style={{ fontSize: 12, fontWeight: 700 }}>Nombre completo</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => setNameTouched(true)}
-              placeholder="¿Cómo te llamas?"
-              className="tomi-chip"
-              style={{
-                width: "100%",
-                borderRadius: 14,
-                padding: "12px 14px",
-                fontSize: 14,
-                outline: "none",
-                marginTop: 6,
-                borderColor: showNameError ? "#C23E28" : undefined,
-              }}
-            />
-            {showNameError && (
-              <p className="tomi-text-tomato-deep" style={{ fontSize: 12, marginTop: 4 }}>
-                Cuéntame cómo te llamas para poder saludarte bien 🙂
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="tomi-text-ink-soft" style={{ fontSize: 12, fontWeight: 700 }}>Correo electrónico</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => setEmailTouched(true)}
-              placeholder="tu.correo@ejemplo.com"
-              className="tomi-chip"
-              style={{
-                width: "100%",
-                borderRadius: 14,
-                padding: "12px 14px",
-                fontSize: 14,
-                outline: "none",
-                marginTop: 6,
-                borderColor: showEmailError ? "#C23E28" : undefined,
-              }}
-            />
-            {showEmailError && (
-              <p className="tomi-text-tomato-deep" style={{ fontSize: 12, marginTop: 4 }}>
-                Revisa tu correo, parece que le falta algo (el @ o el .com).
-              </p>
-            )}
-          </div>
-
-          <label className="flex items-start gap-2" style={{ cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={wantsNewsletter}
-              onChange={(e) => setWantsNewsletter(e.target.checked)}
-              style={{ marginTop: 3, width: 16, height: 16, flexShrink: 0 }}
-            />
-            <span className="tomi-text-ink-soft" style={{ fontSize: 12.5, lineHeight: 1.4 }}>
-              Quiero recibir ideas de recetas semanales en mi correo
+        <div className="flex flex-wrap gap-2" style={{ marginTop: 12 }}>
+          {WELCOME_PERKS.map((perk) => (
+            <span key={perk.text} className="tomi-text-ink" style={{ background: "#FBEBDD", borderRadius: 999, padding: "6px 11px", fontSize: 12, fontWeight: 700 }}>
+              {perk.icon} {perk.text}
             </span>
-          </label>
+          ))}
         </div>
 
-        <PrimaryButton onClick={handleSubmit}>¡Vamos!</PrimaryButton>
+        <label className="tomi-text-ink" style={{ display: "block", fontSize: 13, fontWeight: 800, marginTop: 18 }}>
+          ¿Cómo te llamas?
+        </label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => setTouched(true)}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }}
+          placeholder="Escribe tu nombre"
+          autoComplete="given-name"
+          enterKeyHint="go"
+          className="tomi-chip"
+          style={{
+            width: "100%",
+            borderRadius: 16,
+            padding: "14px 16px",
+            fontSize: 16,
+            outline: "none",
+            marginTop: 8,
+            background: "#FFFFFF",
+            borderColor: showError ? "#C23E28" : undefined,
+          }}
+        />
+        {showError && (
+          <p className="tomi-text-tomato-deep" style={{ fontSize: 12, marginTop: 6 }}>
+            Cuéntame tu nombre para poder saludarte 🙂
+          </p>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <PrimaryButton onClick={handleSubmit}>{firstName ? `¡Empecemos, ${firstName}!` : "¡Empecemos!"}</PrimaryButton>
+        </div>
+        <p className="tomi-text-ink-soft text-center" style={{ fontSize: 11.5, marginTop: 10 }}>
+          Solo lo uso para saludarte. Se queda guardado en tu celular.
+        </p>
       </div>
     </div>
   );
@@ -4247,7 +4386,7 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
         <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,0) 45%, rgba(31,20,12,0.72) 100%)" }} />
         <div style={{ position: "absolute", left: 20, right: 20, bottom: 14, zIndex: 2 }}>
           <p className="tomi-display" style={{ color: "#FFF8F2", fontSize: 20, fontWeight: 700, textShadow: "0 2px 8px rgba(0,0,0,0.5)", margin: 0 }}>
-            ¡Hola! Soy Tomi 🍅
+            {firstNameOf(userMemory.preferences.name) ? `¡Hola, ${firstNameOf(userMemory.preferences.name)}! 🍅` : "¡Hola! Soy Tomi 🍅"}
           </p>
           <p style={{ color: "#FBDCCE", fontSize: 13, textShadow: "0 1px 6px rgba(0,0,0,0.5)", margin: "2px 0 0" }}>
             Vamos a cocinar algo rico con lo que tengas hoy.
@@ -4256,7 +4395,7 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
       </div>
 
       <div className="px-5 pt-6 pb-2">
-        <p className="tomi-text-ink-soft" style={{ fontSize: 14 }}>¡Hola! 👋</p>
+        <p className="tomi-text-ink-soft" style={{ fontSize: 14 }}>Hoy en la cocina 🍳</p>
         <h1 className="tomi-display tomi-text-ink" style={{ fontSize: 24, fontWeight: 700 }}>¿Qué vamos a cocinar hoy?</h1>
       </div>
 
@@ -7295,7 +7434,7 @@ function SavingsFlow({ pantryItems, setPantryItems, dislikedFoodIds, favoriteFoo
 /* ---------------- App raíz ---------------- */
 
 export default function App() {
-  const [screen, setScreen] = useState("welcome"); // welcome | onboarding | obComplete | firstRun | main | scan | decide | cook | savings
+  const [screen, setScreen] = useState("splash"); // welcome | onboarding | obComplete | firstRun | main | scan | decide | cook | savings
   const [obStep, setObStep] = useState(0); // usado por OnboardingScreen (retirada del flujo, se conserva el componente por si se reutiliza)
   const [obData, setObData] = useState({ goals: [], time: null, savings: null, dislikes: [] });
   const [mainTab, setMainTab] = useState("home");
@@ -7316,7 +7455,7 @@ export default function App() {
 
   // Memoria de preferencias — hoy vive en el estado de React, lista para
   // moverse a una base de datos real con autenticación más adelante.
-  const [userMemory, setUserMemory] = useState({ preferences: MOCK_USER_PREFERENCES });
+  const [userMemory, setUserMemory] = useState(() => ({ preferences: { ...MOCK_USER_PREFERENCES, name: loadSavedName() } }));
 
   // Logros: se derivan siempre del estado real; solo guardamos cuáles ya
   // se mostraron como "¡Nuevo logro!" para no repetir la celebración.
@@ -7334,7 +7473,7 @@ export default function App() {
   }, [unlockedAchievements.length]);
 
   const updatePreferences = (updater) => setUserMemory((prev) => ({ ...prev, preferences: updater(prev.preferences) }));
-  const clearMemory = () => setUserMemory({ preferences: clearUserMemory() });
+  const clearMemory = () => setUserMemory((prev) => ({ preferences: { ...clearUserMemory(), name: prev.preferences.name } }));
 
   const openScanner = () => {
     setScanKey((k) => k + 1); // reinicia el flujo del escáner cada vez que se entra
@@ -7383,10 +7522,18 @@ export default function App() {
         style={{ width: 390, maxWidth: "100%", height: 780, maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column", border: "10px solid #2B2118", position: "relative" }}
       >
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {screen === "splash" && (
+            <TomiSplash
+              name={userMemory.preferences.name}
+              onDone={() => setScreen(userMemory.preferences.name ? "main" : "welcome")}
+            />
+          )}
+
           {screen === "welcome" && (
             <WelcomeScreen
-              onSubmit={({ name, email, wantsNewsletter }) => {
-                updatePreferences((prev) => ({ ...prev, name, email, wantsNewsletter }));
+              onSubmit={({ name }) => {
+                saveName(name);
+                updatePreferences((prev) => ({ ...prev, name }));
                 setScreen("main");
               }}
               voiceEnabled={userMemory.preferences.voiceEnabled}
