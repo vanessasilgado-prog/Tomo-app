@@ -3610,15 +3610,67 @@ const MOCK_USER_PREFERENCES = {
   name: "",
   email: "",
   wantsNewsletter: false,
-  favoriteFoods: ["huevo", "papa", "arroz"],
+  favoriteFoods: [],
   dislikedFoods: [],
   favoriteRecipes: [],
-  cookingTimePreference: "20",
-  budgetPreference: "cero",
+  cookingTimePreference: null,
+  budgetPreference: null,
   dietaryPreferences: [],
-  frequentIngredients: ["huevo", "arroz"],
+  frequentIngredients: [],
   voiceEnabled: true,
 };
+
+/* ---------- "Lo que prefiero evitar": familias de ingredientes ----------
+   Si la persona evita "Picante", Tomi esconde también todos los chiles; si
+   evita "Coco", también la leche y el agua de coco; etc. Además, cualquier
+   ingrediente que empiece igual cuenta como familia (queso → queso fresco). */
+const INGREDIENT_FAMILIES = {
+  picante: ["picante", "chile_serrano", "chile_guajillo", "chile_ancho", "chile_mulato", "chile_pasilla", "chile_poblano", "chile_habanero", "chile_guero", "aji_limo"],
+  coco: ["coco", "leche_coco", "agua_coco"],
+  cebolla: ["cebolla", "cebolla_morada", "cebolla_larga"],
+  pescado: ["pescado", "salmon", "atun", "salsa_pescado"],
+};
+// Parecidos de nombre que NO son de la misma familia (la leche de coco no es lácteo).
+const FAMILY_EXCEPTIONS = {
+  leche: ["leche_coco", "leche_almendras", "leche_soya"],
+  mantequilla: ["mantequilla_mani", "mantequilla_almendras"],
+};
+
+function ingredientMatchesAvoided(ingredientId, avoidedId) {
+  if (ingredientId === avoidedId) return true;
+  if ((INGREDIENT_FAMILIES[avoidedId] || []).includes(ingredientId)) return true;
+  if ((FAMILY_EXCEPTIONS[avoidedId] || []).includes(ingredientId)) return false;
+  return ingredientId.startsWith(avoidedId + "_");
+}
+
+/* true si la receta NO tiene nada de lo que la persona prefiere evitar. */
+function recipeIsAllowed(recipe, dislikedIds) {
+  if (!dislikedIds || dislikedIds.length === 0) return true;
+  return !recipe.ingredients.some((i) => dislikedIds.some((d) => ingredientMatchesAvoided(i, d)));
+}
+
+/* Básicos que casi todo el mundo tiene: no cuentan como "te falta". */
+const PANTRY_BASICS = ["azucar", "comino", "oregano", "laurel", "canela", "vainilla", "polvo_hornear", "maizena"];
+
+/* ---------- Guardado en el celular ----------
+   Todo lo de la persona (gustos, favoritos, lo que ha cocinado, logros)
+   se guarda en su propio celular, para que no se pierda al cerrar la app. */
+const TOMI_DATA_KEY = "tomi_datos_v1";
+function loadSavedData() {
+  try {
+    const raw = window.localStorage.getItem(TOMI_DATA_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+function saveData(data) {
+  try {
+    window.localStorage.setItem(TOMI_DATA_KEY, JSON.stringify(data));
+  } catch (e) {
+    /* sin espacio o almacenamiento bloqueado: la app sigue funcionando */
+  }
+}
 
 function getUserPreferences(userMemory) {
   return userMemory.preferences;
@@ -4566,7 +4618,9 @@ function HomeScreen({ onScan, onOpenCategory, onOpenCountries, userMemory, cookH
   const [selectedRecipe, setSelectedRecipe] = useState(null);
   const favoriteRecipes = userMemory.preferences.favoriteRecipes.map(findRecipeById).filter(Boolean);
   const hasFavorites = favoriteRecipes.length > 0;
-  const homeRecipes = hasFavorites ? favoriteRecipes : HOME_SUGGESTED_RECIPE_IDS.map(findRecipeById).filter(Boolean);
+  const homeRecipes = hasFavorites
+    ? favoriteRecipes
+    : HOME_SUGGESTED_RECIPE_IDS.map(findRecipeById).filter((r) => r && recipeIsAllowed(r, userMemory.preferences.dislikedFoods));
   const openRecipe = (id) => {
     const summary = buildRecipeSummaryFromId(id, pantryIds);
     if (summary) setSelectedRecipe(summary);
@@ -4987,20 +5041,63 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
   // Ingredientes que el usuario dice tener, para el filtro de esta pantalla.
   // Arranca con lo que ya haya en su despensa (si escaneó antes), pero aquí
   // se puede elegir o escribir más, sin depender de haber escaneado nada.
-  const [selectedIds, setSelectedIds] = useState(() => pantryItems.map((p) => p.id));
+  // Se recuerdan entre categorías y entre visitas (guardado en el celular).
+  const [selectedIds, setSelectedIdsRaw] = useState(() => {
+    let saved = [];
+    try {
+      saved = JSON.parse(window.localStorage.getItem("tomi_mis_ingredientes") || "[]");
+    } catch (e) {
+      saved = [];
+    }
+    return [...new Set([...(Array.isArray(saved) ? saved : []), ...pantryItems.map((p) => p.id)])];
+  });
+  const setSelectedIds = (updater) =>
+    setSelectedIdsRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      try {
+        window.localStorage.setItem("tomi_mis_ingredientes", JSON.stringify(next));
+      } catch (e) {
+        /* sin almacenamiento: no pasa nada */
+      }
+      return next;
+    });
+  const [panelOpen, setPanelOpen] = useState(true);
 
   const dislikedFoodIds = userMemory.preferences.dislikedFoods;
+  const has = (i) => selectedIds.includes(i) || PANTRY_BASICS.includes(i);
 
   const activeGroup = meta.subTabs ? subTab : meta.soloGroup;
-  const list = meta.source.filter((r) => r[meta.field] === activeGroup && !r.ingredients.some((i) => dislikedFoodIds.includes(i))).map((r) => ({
-    ...r,
-    availableIngredients: r.ingredients.filter((i) => selectedIds.includes(i)),
-    missingIngredients: r.ingredients.filter((i) => !selectedIds.includes(i)),
-  }));
+  const baseList = meta.source
+    .filter((r) => r[meta.field] === activeGroup && recipeIsAllowed(r, dislikedFoodIds))
+    .map((r) => {
+      const needed = r.ingredients.filter((i) => !PANTRY_BASICS.includes(i));
+      return {
+        ...r,
+        availableIngredients: r.ingredients.filter(has),
+        missingIngredients: r.ingredients.filter((i) => !has(i)),
+        haveCount: needed.filter((i) => selectedIds.includes(i)).length,
+        neededCount: needed.length,
+      };
+    });
+
+  // Con el filtro activo, primero las recetas que más se parecen a lo que tienes.
+  const filtering = filterByPantry && selectedIds.length > 0;
+  const list = filtering
+    ? [...baseList].sort((a, b) => a.missingIngredients.length - b.missingIngredients.length || b.haveCount - a.haveCount)
+    : baseList;
+  const readyCount = baseList.filter((r) => r.missingIngredients.length === 0).length;
+  const almostCount = baseList.filter((r) => r.missingIngredients.length > 0 && r.missingIngredients.length <= 2).length;
+
+  const matchLabel = (r) => {
+    if (r.missingIngredients.length === 0) return "✓ ¡Tienes todo!";
+    const falta = r.missingIngredients.length;
+    return `Tienes ${r.haveCount} de ${r.neededCount} · falta${falta === 1 ? "" : "n"} ${falta}`;
+  };
+  const isDimmed = (r) => filtering && r.haveCount === 0;
 
   // Ingredientes que de verdad se usan en esta categoría, para ofrecerlos
   // como chips rápidos de un solo toque (más cómodo que escribirlos todos).
-  const quickIngredientIds = [...new Set(list.flatMap((r) => r.ingredients))].filter((id) => !selectedIds.includes(id));
+  const quickIngredientIds = [...new Set(baseList.flatMap((r) => r.ingredients))].filter((id) => !selectedIds.includes(id) && !PANTRY_BASICS.includes(id));
 
   const handleCook = (recipe) => onCookRecipe({ ...recipe, isRecommended: false });
 
@@ -5032,7 +5129,7 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
 
       <div className="px-5 mt-4">
         <button
-          onClick={() => setFilterByPantry((v) => !v)}
+          onClick={() => { setFilterByPantry((v) => !v); setPanelOpen(true); }}
           className="tomi-tap tomi-bg-white rounded-2xl w-full flex items-center justify-between px-4 py-3"
           style={{ border: filterByPantry ? "1.5px solid #E85A3B" : "1.5px solid #EADFCF" }}
         >
@@ -5047,9 +5144,22 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
           </span>
         </button>
 
-        {filterByPantry && (
+        {filterByPantry && !panelOpen && (
+          <button
+            onClick={() => setPanelOpen(true)}
+            className="tomi-tap tomi-bg-white rounded-2xl px-4 py-3 mt-2 w-full flex items-center justify-between"
+            style={{ border: "1.5px solid #EADFCF", textAlign: "left" }}
+          >
+            <span className="tomi-text-ink" style={{ fontSize: 13, fontWeight: 700 }}>
+              🥕 {selectedIds.length} {selectedIds.length === 1 ? "ingrediente elegido" : "ingredientes elegidos"}
+            </span>
+            <span className="tomi-text-tomato" style={{ fontSize: 12.5, fontWeight: 800 }}>Editar ✏️</span>
+          </button>
+        )}
+
+        {filterByPantry && panelOpen && (
           <div className="tomi-bg-white rounded-2xl px-4 py-3 mt-2 tomi-pop-in" style={{ border: "1.5px solid #EADFCF" }}>
-            <p className="tomi-text-ink-soft" style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Tus ingredientes para esta categoría</p>
+            <p className="tomi-text-ink-soft" style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Toca los ingredientes que tienes en casa</p>
             <IngredientTagList
               ids={selectedIds}
               onRemove={(id) => setSelectedIds((prev) => prev.filter((x) => x !== id))}
@@ -5078,6 +5188,25 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
               emoji="🥕"
               onAdd={(id) => setSelectedIds((prev) => [...prev, id])}
             />
+            <p className="tomi-text-ink-soft" style={{ fontSize: 11.5, marginTop: 8 }}>No cuento sal, aceite, azúcar ni especias básicas: doy por hecho que los tienes.</p>
+            <button onClick={() => setPanelOpen(false)} className="tomi-tap tomi-bg-tomato rounded-2xl w-full" style={{ padding: "11px 0", marginTop: 10 }}>
+              <span className="tomi-display" style={{ color: "#FFF8F2", fontSize: 14, fontWeight: 700 }}>Ver recetas ✓</span>
+            </button>
+          </div>
+        )}
+
+        {filtering && (
+          <div className="rounded-2xl flex items-center gap-3 mt-3 tomi-pop-in" style={{ background: readyCount > 0 ? "#E3EDD7" : "#FCEACA", padding: "10px 14px" }}>
+            <TomiHead size={40} pose={readyCount > 0 ? "excited" : "happy"} />
+            <p className="tomi-text-ink" style={{ fontSize: 13, lineHeight: 1.4, margin: 0 }}>
+              {readyCount > 0 ? (
+                <>¡Con lo que tienes puedes hacer <b>{readyCount} {readyCount === 1 ? "receta" : "recetas"}</b>! 🎉{almostCount > 0 ? ` Y a ${almostCount} les falta solo 1 o 2 cosas.` : ""}</>
+              ) : almostCount > 0 ? (
+                <>A <b>{almostCount} {almostCount === 1 ? "receta" : "recetas"}</b> les falta solo 1 o 2 ingredientes. ¡Están arriba! 👇</>
+              ) : (
+                <>Ordené las recetas de la que más se parece a lo que tienes a la que menos 👇</>
+              )}
+            </p>
           </div>
         )}
       </div>
@@ -5085,7 +5214,8 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
       {list.length > 0 && list.filter((r) => r.photo).length >= list.length * 0.8 ? (
         <div className="px-5 mt-4 pb-8 grid grid-cols-2 gap-3">
           {list.map((r) => {
-            const dimmed = filterByPantry && r.missingIngredients.length > 0;
+            const dimmed = isDimmed(r);
+            const ready = filtering && r.missingIngredients.length === 0;
             return (
               <button
                 key={r.id}
@@ -5099,7 +5229,8 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
                   backgroundColor: "#FBDCCE",
                   backgroundSize: "cover",
                   backgroundPosition: "center",
-                  opacity: dimmed ? 0.45 : 1,
+                  opacity: dimmed ? 0.5 : 1,
+                  boxShadow: ready ? "0 0 0 3px #6E9B47" : undefined,
                 }}
               >
                 {!r.photo && (
@@ -5111,7 +5242,7 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
                     {r.name}
                   </p>
                   <p style={{ fontSize: 10.5, color: "#FBDCCE", textShadow: "0 1px 4px rgba(0,0,0,0.6)", margin: "2px 0 0" }}>
-                    {dimmed ? `Falta ${r.missingIngredients.length}` : `${r.time} min · $0 extra`}
+                    {filtering ? matchLabel(r) : `⏱️ ${r.time} min`}
                   </p>
                 </div>
               </button>
@@ -5121,7 +5252,7 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
       ) : (
         <div className="px-5 mt-4 pb-8 flex flex-col gap-3">
           {list.map((r) => {
-            const dimmed = filterByPantry && r.missingIngredients.length > 0;
+            const dimmed = isDimmed(r);
             return (
               <button
                 key={r.id}
@@ -5141,7 +5272,7 @@ function CategoryScreen({ group, pantryItems, userMemory, onCookRecipe, onExit }
                 <div className="flex-1">
                   <p className="tomi-display tomi-text-ink" style={{ fontSize: 15, fontWeight: 700 }}>{r.name}</p>
                   <p className="tomi-text-ink-soft" style={{ fontSize: 12, marginTop: 2 }}>
-                    {dimmed ? `Te falta ${r.missingIngredients.length} ingrediente${r.missingIngredients.length === 1 ? "" : "s"}` : `${r.time} min · $0 extra`}
+                    {filtering ? matchLabel(r) : `⏱️ ${r.time} min`}
                   </p>
                 </div>
               </button>
@@ -5281,7 +5412,7 @@ function CocinarScreen({ pantryItems, userMemory, onCookRecipe }) {
     availableIngredients: r.ingredients.filter((i) => pantryIds.includes(i)),
     missingIngredients: r.ingredients.filter((i) => !pantryIds.includes(i)),
   });
-  const notDisliked = (r) => !r.ingredients.some((i) => dislikedFoodIds.includes(i));
+  const notDisliked = (r) => recipeIsAllowed(r, dislikedFoodIds);
 
   // Todo: todos los platos con foto (sin los que tengan algo que la persona evita).
   const allList = allPhotoRecipes().filter(notDisliked);
@@ -5597,7 +5728,7 @@ function PerfilScreen({ userMemory, cookHistory, pantryItems, onUpdatePreference
             <IngredientTagList
               ids={prefs.favoriteFoods}
               onRemove={(id) => onUpdatePreferences((p) => removeFavoriteFood(p, id))}
-              emptyText="Todavía no agregaste ingredientes favoritos."
+              emptyText="Cuéntame qué ingredientes te encantan 🥰"
             />
             <AddIngredientInline excludeIds={prefs.favoriteFoods} onAdd={(id) => onUpdatePreferences((p) => addFavoriteFood(p, id))} />
           </PrefCard>
@@ -7916,14 +8047,22 @@ export default function App() {
   // Receta que se está cocinando en este momento + historial de recetas terminadas.
   // Preparado para personalizar futuras recomendaciones.
   const [activeRecipe, setActiveRecipe] = useState(null);
-  const [cookHistory, setCookHistory] = useState([]);
-  const [shoppingList, setShoppingList] = useState([]);
+  const [savedData] = useState(loadSavedData);
+  const [cookHistory, setCookHistory] = useState(() => (Array.isArray(savedData.cookHistory) ? savedData.cookHistory : []));
+  const [shoppingList, setShoppingList] = useState(() => (Array.isArray(savedData.shoppingList) ? savedData.shoppingList : []));
   const [savingsKey, setSavingsKey] = useState(0);
   const [categoryGroup, setCategoryGroup] = useState(null);
 
   // Memoria de preferencias — hoy vive en el estado de React, lista para
   // moverse a una base de datos real con autenticación más adelante.
-  const [userMemory, setUserMemory] = useState(() => ({ preferences: { ...MOCK_USER_PREFERENCES, name: loadSavedName() } }));
+  const [userMemory, setUserMemory] = useState(() => ({
+    preferences: { ...MOCK_USER_PREFERENCES, ...(savedData.preferences || {}), name: loadSavedName() },
+  }));
+
+  // Cada vez que algo cambia, se guarda en el celular.
+  useEffect(() => {
+    saveData({ preferences: userMemory.preferences, cookHistory, shoppingList });
+  }, [userMemory, cookHistory, shoppingList]);
 
   // Logros: se derivan siempre del estado real; solo guardamos cuáles ya
   // se mostraron como "¡Nuevo logro!" para no repetir la celebración.
