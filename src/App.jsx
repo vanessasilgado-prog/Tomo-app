@@ -105,8 +105,15 @@ function TomiStyles() {
       .tomi-safe-bottom { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
 
       @keyframes tomiGlobeSpin { from { transform: translateX(0); } to { transform: translateX(-100px); } }
-      .tomi-globe-land { animation: tomiGlobeSpin 22s linear infinite; }
+      .tomi-globe-land { animation: tomiGlobeSpin 8s linear infinite; }
       @media (prefers-reduced-motion: reduce) { .tomi-globe-land { animation: none; } }
+
+      @keyframes tomiPremiumGlow {
+        0%, 100% { box-shadow: 0 16px 30px -14px rgba(61,43,34,0.6), 0 0 0 0 rgba(242,169,59,0); }
+        50% { box-shadow: 0 16px 30px -14px rgba(61,43,34,0.6), 0 0 22px 6px rgba(242,169,59,0.55); }
+      }
+      .tomi-premium-glow { animation: tomiPremiumGlow 2.6s ease-in-out infinite; }
+      @media (prefers-reduced-motion: reduce) { .tomi-premium-glow { animation: none; } }
 
       @keyframes tomiScan { 0% { top: 6%; } 50% { top: 90%; } 100% { top: 6%; } }
       .tomi-scanline {
@@ -4980,13 +4987,15 @@ function HomeScreen({ onOpenBonos, onScan, onOpenCategory, onOpenCountries, user
       <div className="tomi-bg-tomato-soft mx-5 rounded-3xl mt-4 px-5 py-4 flex items-center gap-4 tomi-shadow-card">
         <TomiHead size={64} pose="happy" />
         <p className="tomi-text-ink" style={{ fontSize: 14, lineHeight: 1.4 }}>
-          Hoy podemos ahorrar y comer rico. 😎
+          {firstNameOf(userMemory.preferences.name)
+            ? `${firstNameOf(userMemory.preferences.name)}, juntos podemos hacer algo delicioso 🍅`
+            : "Juntos podemos hacer algo delicioso 🍅"}
         </p>
       </div>
 
       <div className="px-5 mt-5 flex flex-col gap-3">
         <div
-          className="rounded-3xl"
+          className="rounded-3xl tomi-premium-glow"
           style={{ position: "relative", padding: 18, background: "linear-gradient(145deg, #3D2B22 0%, #6B3A26 55%, #C23E28 100%)", boxShadow: "0 16px 30px -14px rgba(61,43,34,0.6)" }}
         >
           <span className="tomi-display" style={{ position: "absolute", top: 14, right: 14, fontSize: 11, fontWeight: 800, color: "#3D2B22", background: "linear-gradient(135deg, #FCEACA, #F2A93B)", borderRadius: 999, padding: "4px 10px", letterSpacing: 0.5 }}>
@@ -5121,7 +5130,7 @@ function HomeScreen({ onOpenBonos, onScan, onOpenCategory, onOpenCountries, user
         <button
           onClick={onOpenBonos}
           className="tomi-tap rounded-3xl w-full flex items-center gap-3"
-          style={{ marginTop: 12, textAlign: "left", padding: "14px 16px", background: "#FFFFFF", border: "2px dashed #F2A93B", boxShadow: "0 10px 22px -12px rgba(20,40,10,0.5)" }}
+          style={{ marginTop: 12, textAlign: "left", padding: "14px 16px", background: "linear-gradient(135deg, #FFF6EA, #FBDCCE)", boxShadow: "0 10px 22px -12px rgba(20,40,10,0.5)" }}
         >
           <span style={{ fontSize: 34 }}>🎁</span>
           <span className="flex-1">
